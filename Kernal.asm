@@ -30,9 +30,9 @@ RESET:
 ; Initialize the serial output
 ; Modifies: Flags, A
 INIT_SC:
-  lda     #$10              ; 8-N-1, 115200 baud
+  lda     #$1F                  ; 8-N-1, 19200 baud
   sta     SC_CTRL
-  lda     #$09              ; No parity, no echo, transmit interrupts disabled, receive interrupts enabled
+  lda     #$09                  ; No parity, no echo, RTSB low, TX interrupts disabled, RX interrupts enabled
   sta     SC_CMD
   rts
 
@@ -78,6 +78,18 @@ CHRIN:
   beq @CHRIN_NO_CHAR            ; Branch if no character available
   jsr READ_BUFFER               ; Read the character from the buffer
   jsr CHROUT                    ; Echo
+  pha                           
+  jsr BUFFER_SIZE               
+  cmp #$B0                      ; Check if buffer is mostly full
+  bcc @CHRIN_NOT_FULL           ; Branch if buffer size < $B0
+  lda #$01                      ; No parity, no echo, RTSB high, TX interrupts disabled, RX interrupts enabled
+  sta SC_CMD
+  bra @CHRIN_EXIT
+@CHRIN_NOT_FULL:
+  lda #$09                      ; No parity, no echo, RTSB low, TX interrupts disabled, RX interrupts enabled
+  sta SC_CMD
+@CHRIN_EXIT:
+  pla
   plx
   sec
   rts
@@ -93,8 +105,8 @@ CHROUT:
   pha
 @CHROUT_WAIT:
   lda SC_STATUS
-  and #%00010000                ; Check if tx buffer not empty
-  beq @CHROUT_WAIT              ; Loop if tx buffer not empty
+  and #SC_STATUS_TDRE           ; Check if TX buffer not empty
+  beq @CHROUT_WAIT              ; Loop if TX buffer not empty
   pla
   rts
 
@@ -105,14 +117,21 @@ NMI:
 ; IRQ Handler
 IRQ:
   pha
+  phy
   phx
   lda SC_STATUS
-  and #%10000000                ; Check if serial data caused the interrupt
+  and #SC_STATUS_IRQ            ; Check if serial data caused the interrupt
   beq @IRQ_EXIT                 ; If not, exit
   lda SC_DATA                   ; Read the data from serial register
   jsr WRITE_BUFFER              ; Store to the input buffer
+  jsr BUFFER_SIZE
+  cmp #$F0                      ; Is the buffer almost full?
+  bcc @IRQ_EXIT                 ; If not, exit
+  lda #$01                      ; No parity, no echo, RTSB high, TX interrupts disabled, RX interrupts enabled
+  sta SC_CMD                    ; Otherwise, signal not ready for receiving (RTSB high)
 @IRQ_EXIT:
   plx
+  ply
   pla
   rti
 

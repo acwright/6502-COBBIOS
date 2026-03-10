@@ -6,7 +6,7 @@ CONFIG = BIOS
 all: build
 
 build: $(TARGET).asm
-	cl65 -C $(CONFIG).cfg -l $(TARGET).lst -o $(TARGET).bin $(TARGET).asm 
+	cl65 -t none -C $(CONFIG).cfg -l $(TARGET).lst -o $(TARGET).bin $(TARGET).asm 
 	
 view:
 	hexdump -C $(TARGET).bin

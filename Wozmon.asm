@@ -10,6 +10,7 @@ WOZ_L     = $28               ; Hex value parsing Low
 WOZ_H     = $29               ; Hex value parsing High
 WOZ_YSAV  = $2A               ; Used to see if hex value is given
 WOZ_MODE  = $2B               ; $00=XAM, $7F=STOR, $AE=BLOCK XAM
+WOZ_IN    = USER_VARS         ; Input buffer
 
 WOZ_MON:
   lda     #$1B                ; Begin with escape
@@ -40,7 +41,7 @@ WOZ_BACKSPACE:
 WOZ_NEXTCHAR:
   jsr     CHRIN               ; Get next character
   bcc     WOZ_NEXTCHAR        ; No character found
-  sta     INPUT_BUFFER,y      ; Add to text buffer
+  sta     WOZ_IN,y            ; Add to text buffer
   cmp     #$0D                ; CR?
   bne     WOZ_NOTCR           ; No
 
@@ -55,7 +56,7 @@ WOZ_SETSTOR:
 WOZ_BLSKIP:
   iny                         ; Advance text index
 WOZ_NEXTITEM:
-  lda     INPUT_BUFFER,y      ; Get character
+  lda     WOZ_IN,y            ; Get character
   cmp     #$0D                ; CR?
   beq     WOZ_GETLINE         ; Yes, done this line
   cmp     #$2E                ; "."?
@@ -70,7 +71,7 @@ WOZ_NEXTITEM:
   sty     WOZ_YSAV            ; Save Y for comparison
 
 WOZ_NEXTHEX:
-  lda     INPUT_BUFFER,y      ; Get character for hex test
+  lda     WOZ_IN,y            ; Get character for hex test
   eor     #$30                ; Map digits to $0-9
   cmp     #$0A                ; Digit?
   bcc     WOZ_DIG             ; Yes
