@@ -1,7 +1,7 @@
 6502-COBBIOS
-===========
+============
 
-COB BIOS ROM for the [A.C. Wright 6502 project](https://github.com/acwright/6502).
+BIOS ROM for the "COB" computer in the [A.C. Wright 6502 project](https://github.com/acwright/6502).
 
 ## Prerequisites
 
