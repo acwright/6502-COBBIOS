@@ -1,7 +1,7 @@
-6502-BIOS
+6502-COBBIOS
 ===========
 
-BIOS ROM for the [A.C. Wright 6502 project](https://github.com/acwright/6502).
+COB BIOS ROM for the [A.C. Wright 6502 project](https://github.com/acwright/6502).
 
 ## Prerequisites
 
