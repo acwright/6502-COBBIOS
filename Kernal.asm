@@ -22,20 +22,22 @@ VideoSetCursor: jmp VideoSetCursorImpl; $A024 - Set cursor (X=col, Y=row)
 VideoGetCursor: jmp VideoGetCursorImpl; $A027 - Get cursor position
 VideoScroll:    jmp VideoScrollImpl   ; $A02A - Scroll screen up one line
 SerialChrout:   jmp SerialChroutImpl  ; $A02D - Direct serial output (bypass IO_MODE)
-ReadJoystick1:  jmp UnimplementedStub ; $A030 - Read joystick 1
-ReadJoystick2:  jmp UnimplementedStub ; $A033 - Read joystick 2
-RtcReadTime:    jmp UnimplementedStub ; $A036 - Read RTC time
-RtcReadDate:    jmp UnimplementedStub ; $A039 - Read RTC date
-RtcWriteTime:   jmp UnimplementedStub ; $A03C - Set RTC time
-RtcWriteDate:   jmp UnimplementedStub ; $A03F - Set RTC date
-StReadSector:   jmp UnimplementedStub ; $A042 - Read CF sector
-StWriteSector:  jmp UnimplementedStub ; $A045 - Write CF sector
-StWaitReady:    jmp UnimplementedStub ; $A048 - Wait CF ready
-SetIOMode:      jmp SetIOModeImpl     ; $A04B - Set IO_MODE
-GetIOMode:      jmp GetIOModeImpl     ; $A04E - Get IO_MODE
+ReadJoystick1:  jmp ReadJoystick1Impl  ; $A030 - Read joystick 1
+ReadJoystick2:  jmp ReadJoystick2Impl  ; $A033 - Read joystick 2
+RtcReadTime:    jmp RtcReadTimeImpl   ; $A036 - Read RTC time
+RtcReadDate:    jmp RtcReadDateImpl   ; $A039 - Read RTC date
+RtcWriteTime:   jmp RtcWriteTimeImpl  ; $A03C - Set RTC time
+RtcWriteDate:   jmp RtcWriteDateImpl  ; $A03F - Set RTC date
+RtcReadPRAM:    jmp RtcReadPRAMImpl   ; $A042 - Read PRAM byte
+RtcWritePRAM:   jmp RtcWritePRAMImpl  ; $A045 - Write PRAM byte
+StReadSector:   jmp StReadSectorImpl  ; $A048 - Read CF sector
+StWriteSector:  jmp StWriteSectorImpl ; $A04B - Write CF sector
+StWaitReady:    jmp StWaitReadyImpl   ; $A04E - Wait CF ready
+SetIOMode:      jmp SetIOModeImpl     ; $A051 - Set IO_MODE
+GetIOMode:      jmp GetIOModeImpl     ; $A054 - Get IO_MODE
 
-; Reserved entries ($A051-$A0FE)
-.repeat 58
+; Reserved entries ($A057-$A0FE)
+.repeat 56
                 jmp UnimplementedStub
 .endrepeat
 .byte $00                             ; Pad to 256 bytes ($A0FF)
@@ -397,6 +399,7 @@ Reset:
   jsr InitVideo                 ; Initialize the Video Card (TMS9918)
   jsr InitCharacters            ; Initialize the character set
   jsr InitKB                    ; Initialize the keyboard (VIA)
+  jsr StInit                    ; Initialize CompactFlash (8-bit mode)
 
   lda #$00                      ; Default to video output mode
   sta IO_MODE
@@ -428,14 +431,20 @@ Reset:
   jmp WozMon
 
 ; Initialize the Keyboard via VIA (IO 6)
-; Configures Port B as input, CB2 low (enable keyboard controller), CB1 falling-edge IRQ
+; Configures Port B (matrix) and Port A (PS/2) as inputs
+; CB2 low (enable matrix encoder), CA2 low (enable PS/2 encoder)
+; CB1 and CA1 falling-edge IRQs enabled
 ; Modifies: Flags, A
 InitKBImpl:
-  lda #$00                      ; Port B all inputs (keyboard data bus)
+  lda #$00                      ; Port B all inputs (matrix keyboard data bus)
   sta GPIO_DDRB
-  lda #(GPIO_PCR_CB2_LO | GPIO_PCR_CB1_NEG) ; CB2 manual output low + CB1 falling edge
+  lda #$00                      ; Port A all inputs (PS/2 keyboard data bus)
+  sta GPIO_DDRA
+  ; PCR: CB2 low + CB1 neg + CA2 low + CA1 neg
+  lda #(GPIO_PCR_CB2_LO | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_LO | GPIO_PCR_CA1_NEG)
   sta GPIO_PCR
-  lda #(GPIO_IER_SET | GPIO_INT_CB1)        ; Enable CB1 interrupt
+  ; Enable both CB1 and CA1 interrupts
+  lda #(GPIO_IER_SET | GPIO_INT_CB1 | GPIO_INT_CA1)
   sta GPIO_IER
   rts
   
@@ -611,6 +620,911 @@ BeepImpl:
   sta SID_V1_CTRL
   rts
 
+; KBDisable — Disable both keyboard encoders for raw port access
+; Sets CB2 high (disable matrix encoder) and CA2 high (disable PS/2 encoder)
+; Modifies: Flags, A
+KBDisable:
+  lda #(GPIO_PCR_CB2_HI | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_HI | GPIO_PCR_CA1_NEG)
+  sta GPIO_PCR
+  rts
+
+; KBEnable — Re-enable both keyboard encoders
+; Sets CB2 low (enable matrix encoder) and CA2 low (enable PS/2 encoder)
+; Modifies: Flags, A
+KBEnable:
+  lda #(GPIO_PCR_CB2_LO | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_LO | GPIO_PCR_CA1_NEG)
+  sta GPIO_PCR
+  rts
+
+; ReadJoystick1 — Read joystick 1 on Port B
+; Temporarily disables matrix keyboard encoder (CB2 high) to read raw port data
+; Output: A = joystick bitmask (bits: R-L-D-U-Y-X-B-A)
+; Modifies: Flags, A
+ReadJoystick1Impl:
+  sei                           ; Disable interrupts during raw port read
+  lda GPIO_PCR
+  pha                           ; Save current PCR state
+  ; Set CB2 high to disable matrix encoder, preserve CA2 state
+  lda #(GPIO_PCR_CB2_HI | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_LO | GPIO_PCR_CA1_NEG)
+  sta GPIO_PCR
+  lda GPIO_PORTB                ; Read raw joystick data from Port B
+  tax                           ; Save result in X
+  pla                           ; Restore original PCR state
+  sta GPIO_PCR
+  txa                           ; Return result in A
+  cli                           ; Re-enable interrupts
+  rts
+
+; ReadJoystick2 — Read joystick 2 on Port A
+; Temporarily disables PS/2 keyboard encoder (CA2 high) to read raw port data
+; Output: A = joystick bitmask (bits: R-L-D-U-Y-X-B-A)
+; Modifies: Flags, A
+ReadJoystick2Impl:
+  sei                           ; Disable interrupts during raw port read
+  lda GPIO_PCR
+  pha                           ; Save current PCR state
+  ; Set CA2 high to disable PS/2 encoder, preserve CB2 state
+  lda #(GPIO_PCR_CB2_LO | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_HI | GPIO_PCR_CA1_NEG)
+  sta GPIO_PCR
+  lda GPIO_PORTA                ; Read raw joystick data from Port A
+  tax                           ; Save result in X
+  pla                           ; Restore original PCR state
+  sta GPIO_PCR
+  txa                           ; Return result in A
+  cli                           ; Re-enable interrupts
+  rts
+
+; === BCD Conversion Helpers ===
+
+; BcdToBin — Convert BCD byte to binary
+; Input: A = BCD value (e.g. $35 represents 35)
+; Output: A = binary value (e.g. 35 = $23)
+; Modifies: Flags
+BcdToBin:
+  pha
+  lsr a                         ; Shift tens digit to low nibble
+  lsr a
+  lsr a
+  lsr a                         ; A = tens digit (0-9)
+  asl a                         ; A = tens * 2
+  sta RTC_TMP
+  asl a                         ; A = tens * 4
+  asl a                         ; A = tens * 8
+  clc
+  adc RTC_TMP                   ; A = tens * 10 (8 + 2)
+  sta RTC_TMP
+  pla
+  and #$0F                      ; A = ones digit
+  clc
+  adc RTC_TMP                   ; A = tens * 10 + ones = binary
+  rts
+
+; BinToBcd — Convert binary byte to BCD
+; Input: A = binary value (0-99)
+; Output: A = BCD value
+; Modifies: Flags, X
+BinToBcd:
+  ldx #$FF                      ; Tens counter (starts at -1)
+@BinToBcdLoop:
+  inx
+  sec
+  sbc #10
+  bcs @BinToBcdLoop             ; Count tens
+  adc #10                       ; Restore ones (carry clear, so adds 10 + 0)
+  sta RTC_TMP                   ; Save ones digit
+  txa                           ; A = tens digit
+  asl a
+  asl a
+  asl a
+  asl a                         ; Shift tens to high nibble
+  ora RTC_TMP                   ; Combine with ones
+  rts
+
+; === DS1511Y RTC Routines ===
+
+; RtcReadTime — Read current time from DS1511Y
+; Output: A = hours (binary), X = minutes (binary), Y = seconds (binary)
+; Modifies: Flags
+RtcReadTimeImpl:
+  lda RTC_HR
+  jsr BcdToBin
+  pha                           ; Save hours
+  lda RTC_MIN
+  jsr BcdToBin
+  tax                           ; X = minutes
+  lda RTC_SEC
+  jsr BcdToBin
+  tay                           ; Y = seconds
+  pla                           ; A = hours
+  rts
+
+; RtcReadDate — Read current date from DS1511Y
+; Output: A = day of month (binary), X = month (binary), Y = year (binary)
+;         RTC_BUF_CENT = century (binary)
+; Modifies: Flags
+RtcReadDateImpl:
+  lda RTC_CENT
+  jsr BcdToBin
+  sta RTC_BUF_CENT              ; Store century in buffer
+  lda RTC_MON
+  jsr BcdToBin
+  tax                           ; X = month
+  lda RTC_YR
+  jsr BcdToBin
+  tay                           ; Y = year
+  lda RTC_DATE
+  jsr BcdToBin                  ; A = day of month
+  rts
+
+; RtcWriteTime — Set DS1511Y time
+; Input: A = hours (binary), X = minutes (binary), Y = seconds (binary)
+; Modifies: Flags, A, X
+RtcWriteTimeImpl:
+  pha                           ; Save hours
+  phx                           ; Save minutes
+  phy                           ; Save seconds
+  ; Set TE bit to inhibit update transfers
+  lda RTC_CTRL_B
+  ora #RTC_CTRL_B_TE
+  sta RTC_CTRL_B
+  ; Write seconds
+  pla                           ; A = seconds
+  jsr BinToBcd
+  sta RTC_SEC
+  ; Write minutes
+  pla                           ; A = minutes
+  jsr BinToBcd
+  sta RTC_MIN
+  ; Write hours
+  pla                           ; A = hours
+  jsr BinToBcd
+  sta RTC_HR
+  ; Clear TE bit to resume updates
+  lda RTC_CTRL_B
+  and #<~RTC_CTRL_B_TE
+  sta RTC_CTRL_B
+  rts
+
+; RtcWriteDate — Set DS1511Y date
+; Input: A = day of month (binary), X = month (binary), Y = year (binary)
+;        RTC_BUF_CENT = century (binary)
+; Modifies: Flags, A, X
+RtcWriteDateImpl:
+  pha                           ; Save day
+  phx                           ; Save month
+  phy                           ; Save year
+  ; Set TE bit to inhibit update transfers
+  lda RTC_CTRL_B
+  ora #RTC_CTRL_B_TE
+  sta RTC_CTRL_B
+  ; Write century
+  lda RTC_BUF_CENT
+  jsr BinToBcd
+  sta RTC_CENT
+  ; Write year
+  pla                           ; A = year
+  jsr BinToBcd
+  sta RTC_YR
+  ; Write month
+  pla                           ; A = month
+  jsr BinToBcd
+  sta RTC_MON
+  ; Write day
+  pla                           ; A = day
+  jsr BinToBcd
+  sta RTC_DATE
+  ; Clear TE bit to resume updates
+  lda RTC_CTRL_B
+  and #<~RTC_CTRL_B_TE
+  sta RTC_CTRL_B
+  rts
+
+; RtcReadPRAM — Read a byte from DS1511Y PRAM
+; Input: X = PRAM address ($00-$FF)
+; Output: A = data byte
+; Modifies: Flags
+RtcReadPRAMImpl:
+  stx RTC_RAM_ADDR
+  lda RTC_RAM_DATA
+  rts
+
+; RtcWritePRAM — Write a byte to DS1511Y PRAM
+; Input: X = PRAM address ($00-$FF), A = data byte
+; Modifies: Flags
+RtcWritePRAMImpl:
+  stx RTC_RAM_ADDR
+  sta RTC_RAM_DATA
+  rts
+
+; === CompactFlash Storage Driver (True 8-bit IDE Mode) ===
+
+; StWaitReady — Wait for CompactFlash to become ready
+; Polls ST_STATUS until BSY=0 and RDY=1
+; Output: Carry clear = ready, Carry set = error (ERR bit set)
+; Modifies: Flags, A
+StWaitReadyImpl:
+@StWaitBsy:
+  lda ST_STATUS
+  and #ST_STATUS_BSY            ; Check BSY bit
+  bne @StWaitBsy                ; Loop while busy
+  lda ST_STATUS
+  and #ST_STATUS_RDY            ; Check RDY bit
+  beq @StWaitBsy                ; Loop until ready
+  lda ST_STATUS
+  and #ST_STATUS_ERR            ; Check ERR bit
+  bne @StWaitErr
+  clc                           ; Ready, no error
+  rts
+@StWaitErr:
+  sec                           ; Error condition
+  rts
+
+; StWaitDrq — Wait for CompactFlash data request
+; Polls ST_STATUS until BSY=0 and DRQ=1
+; Output: Carry clear = DRQ active, Carry set = error
+; Modifies: Flags, A
+StWaitDrq:
+@StDrqBsy:
+  lda ST_STATUS
+  and #ST_STATUS_BSY
+  bne @StDrqBsy
+  lda ST_STATUS
+  and #ST_STATUS_ERR
+  bne @StDrqErr
+  lda ST_STATUS
+  and #ST_STATUS_DRQ
+  beq @StDrqBsy
+  clc
+  rts
+@StDrqErr:
+  sec
+  rts
+
+; StInit — Initialize CompactFlash for 8-bit data transfers
+; Issues Set Features command with subcommand $01 (enable 8-bit I/O)
+; Output: Carry clear = success, Carry set = error
+; Modifies: Flags, A
+StInit:
+  jsr StWaitReady
+  bcs @StInitDone
+  lda #ST_FEAT_8BIT             ; Feature: enable 8-bit data I/O
+  sta ST_FEATURE
+  lda #ST_CMD_SET_FEAT          ; Set Features command
+  sta ST_CMD
+  jsr StWaitReady               ; Wait for command completion
+@StInitDone:
+  rts
+
+; StSetupLba — Set up LBA registers from CF_LBA zero page variables
+; Also sets sector count to 1 and selects master drive in LBA mode
+; Modifies: Flags, A
+StSetupLba:
+  lda #$01
+  sta ST_SECT_CNT               ; Always 1 sector
+  lda CF_LBA
+  sta ST_LBA_0                  ; LBA bits 0-7
+  lda CF_LBA + 1
+  sta ST_LBA_1                  ; LBA bits 8-15
+  lda CF_LBA + 2
+  sta ST_LBA_2                  ; LBA bits 16-23
+  lda CF_LBA + 3
+  and #$0F                      ; Mask to 4 bits (LBA 24-27)
+  ora #ST_LBA3_MASTER           ; LBA mode, master drive
+  sta ST_LBA_3
+  rts
+
+; StReadSector — Read one 512-byte sector from CompactFlash
+; Input: CF_LBA ($26-$29) = LBA address, CF_BUF_PTR ($24-$25) = destination pointer
+; Output: Carry clear = success, Carry set = error
+;         CF_BUF_PTR advanced by 512 bytes on success
+; Modifies: Flags, A, X, Y
+StReadSectorImpl:
+  jsr StWaitReady
+  bcs @StReadDone
+  jsr StSetupLba
+  lda #ST_CMD_READ              ; Issue read command
+  sta ST_CMD
+  jsr StWaitDrq                 ; Wait for data ready
+  bcs @StReadDone
+  ; Read 512 bytes: 2 pages of 256 bytes
+  ldy #$00
+  ldx #$02                      ; 2 pages
+@StReadPage:
+  lda ST_DATA                   ; Read byte from CF
+  sta (CF_BUF_PTR),y            ; Store to destination
+  iny
+  bne @StReadPage               ; Loop for 256 bytes
+  inc CF_BUF_PTR + 1            ; Next page
+  dex
+  bne @StReadPage
+  clc                           ; Success
+@StReadDone:
+  rts
+
+; StWriteSector — Write one 512-byte sector to CompactFlash
+; Input: CF_LBA ($26-$29) = LBA address, CF_BUF_PTR ($24-$25) = source pointer
+; Output: Carry clear = success, Carry set = error
+;         CF_BUF_PTR advanced by 512 bytes on success
+; Modifies: Flags, A, X, Y
+StWriteSectorImpl:
+  jsr StWaitReady
+  bcs @StWriteDone
+  jsr StSetupLba
+  lda #ST_CMD_WRITE             ; Issue write command
+  sta ST_CMD
+  jsr StWaitDrq                 ; Wait for data request
+  bcs @StWriteDone
+  ; Write 512 bytes: 2 pages of 256 bytes
+  ldy #$00
+  ldx #$02                      ; 2 pages
+@StWritePage:
+  lda (CF_BUF_PTR),y            ; Load from source
+  sta ST_DATA                   ; Write byte to CF
+  iny
+  bne @StWritePage              ; Loop for 256 bytes
+  inc CF_BUF_PTR + 1            ; Next page
+  dex
+  bne @StWritePage
+  jsr StWaitReady               ; Wait for write to complete
+@StWriteDone:
+  rts
+
+; === Simple Custom Filesystem ===
+; Directory at LBA 0: 16 entries x 32 bytes = 512 bytes
+; Entry format:
+;   $00-$07: 8-byte filename (space-padded)
+;   $08-$0A: 3-byte extension (space-padded)
+;   $0B:     flags (bit 0 = in use)
+;   $0C-$0D: start sector (little-endian)
+;   $0E-$0F: file size in bytes (little-endian)
+;   $10-$1F: reserved (16 bytes)
+
+; FsParseName — Parse null-terminated filename at STR_PTR into FS_FNAME_BUF
+; Converts "NAME.EXT" into 8+3 space-padded format
+; Input: STR_PTR ($02-$03) points to null-terminated filename
+; Output: FS_FNAME_BUF filled with padded 8+3 name
+; Modifies: Flags, A, X, Y
+FsParseName:
+  ; Fill FS_FNAME_BUF with spaces
+  lda #$20
+  ldx #10
+@FsParseClr:
+  sta FS_FNAME_BUF,x
+  dex
+  bpl @FsParseClr
+  ; Copy name part (up to 8 chars, stop at '.' or null)
+  ldy #$00                      ; Source index
+  ldx #$00                      ; Dest index (name portion)
+@FsParseName:
+  lda (STR_PTR),y
+  beq @FsParseDone              ; Null terminator — no extension
+  cmp #'.'
+  beq @FsParseExt               ; Found dot — start extension
+  cpx #$08
+  bcs @FsParseSkipName          ; Already 8 chars, skip extras
+  ; Convert lowercase to uppercase
+  cmp #'a'
+  bcc @FsStoreNameChar
+  cmp #'z' + 1
+  bcs @FsStoreNameChar
+  and #$DF                      ; Clear bit 5 to uppercase
+@FsStoreNameChar:
+  sta FS_FNAME_BUF,x
+  inx
+@FsParseSkipName:
+  iny
+  bra @FsParseName
+@FsParseExt:
+  iny                           ; Skip the dot
+  ldx #$08                      ; Extension starts at offset 8
+@FsParseExtLoop:
+  lda (STR_PTR),y
+  beq @FsParseDone              ; Null terminator
+  cpx #$0B
+  bcs @FsParseDone              ; Max 3 ext chars
+  ; Convert lowercase to uppercase
+  cmp #'a'
+  bcc @FsStoreExtChar
+  cmp #'z' + 1
+  bcs @FsStoreExtChar
+  and #$DF
+@FsStoreExtChar:
+  sta FS_FNAME_BUF,x
+  inx
+  iny
+  bra @FsParseExtLoop
+@FsParseDone:
+  rts
+
+; FsReadDir — Read directory sector (LBA 0) into FS_SECTOR_BUF
+; Output: Carry clear = success, Carry set = error
+; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+FsReadDir:
+  stz CF_LBA                    ; LBA = 0 (directory sector)
+  stz CF_LBA + 1
+  stz CF_LBA + 2
+  stz CF_LBA + 3
+  lda #<FS_SECTOR_BUF
+  sta CF_BUF_PTR
+  lda #>FS_SECTOR_BUF
+  sta CF_BUF_PTR + 1
+  jmp StReadSector
+
+; FsWriteDir — Write directory sector from FS_SECTOR_BUF to LBA 0
+; Output: Carry clear = success, Carry set = error
+; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+FsWriteDir:
+  stz CF_LBA
+  stz CF_LBA + 1
+  stz CF_LBA + 2
+  stz CF_LBA + 3
+  lda #<FS_SECTOR_BUF
+  sta CF_BUF_PTR
+  lda #>FS_SECTOR_BUF
+  sta CF_BUF_PTR + 1
+  jmp StWriteSector
+
+; FsFindFile — Search directory for filename in FS_FNAME_BUF
+; Must call FsReadDir first to load directory into FS_SECTOR_BUF
+; Output: Carry clear = found, X = entry index (0-15), CF_BUF_PTR points to entry
+;         Carry set = not found
+; Modifies: Flags, A, X, Y, CF_BUF_PTR
+FsFindFile:
+  lda #<FS_SECTOR_BUF
+  sta CF_BUF_PTR
+  lda #>FS_SECTOR_BUF
+  sta CF_BUF_PTR + 1
+  ldx #$00                      ; Entry index
+@FsFindLoop:
+  ; Check if entry is in use
+  ldy #FS_ENTRY_FLAGS
+  lda (CF_BUF_PTR),y
+  and #FS_FLAG_USED
+  beq @FsFindNext               ; Skip unused entries
+  ; Compare 11-byte filename
+  ldy #$00
+@FsFindCmp:
+  lda (CF_BUF_PTR),y
+  cmp FS_FNAME_BUF,y
+  bne @FsFindNext               ; Mismatch
+  iny
+  cpy #11
+  bne @FsFindCmp
+  ; Match found
+  stx FS_DIR_IDX
+  clc
+  rts
+@FsFindNext:
+  ; Advance CF_BUF_PTR by 32 (FS_ENTRY_SIZE)
+  lda CF_BUF_PTR
+  clc
+  adc #FS_ENTRY_SIZE
+  sta CF_BUF_PTR
+  bcc @FsFindNoCarry
+  inc CF_BUF_PTR + 1
+@FsFindNoCarry:
+  inx
+  cpx #FS_MAX_FILES
+  bne @FsFindLoop
+  sec                           ; Not found
+  rts
+
+; FsFindFree — Find first free directory entry
+; Must call FsReadDir first
+; Output: Carry clear = found, X = entry index, CF_BUF_PTR points to entry
+;         Carry set = directory full
+; Modifies: Flags, A, X, Y, CF_BUF_PTR
+FsFindFree:
+  lda #<FS_SECTOR_BUF
+  sta CF_BUF_PTR
+  lda #>FS_SECTOR_BUF
+  sta CF_BUF_PTR + 1
+  ldx #$00
+@FsFreeLoop:
+  ldy #FS_ENTRY_FLAGS
+  lda (CF_BUF_PTR),y
+  and #FS_FLAG_USED
+  beq @FsFreeFound              ; Found unused entry
+  ; Advance by 32
+  lda CF_BUF_PTR
+  clc
+  adc #FS_ENTRY_SIZE
+  sta CF_BUF_PTR
+  bcc @FsFreeNoCarry
+  inc CF_BUF_PTR + 1
+@FsFreeNoCarry:
+  inx
+  cpx #FS_MAX_FILES
+  bne @FsFreeLoop
+  sec                           ; Directory full
+  rts
+@FsFreeFound:
+  stx FS_DIR_IDX
+  clc
+  rts
+
+; FsCalcNextSec — Calculate next free sector by scanning all directory entries
+; Must call FsReadDir first
+; Output: FS_NEXT_SEC = first free sector after all used files
+; Modifies: Flags, A, X, Y
+FsCalcNextSec:
+  lda #<FS_DATA_START           ; Start with first data sector
+  sta FS_NEXT_SEC
+  lda #>FS_DATA_START
+  sta FS_NEXT_SEC + 1
+  ; Scan all entries to find highest used sector + file sector count
+  lda #<FS_SECTOR_BUF
+  sta CF_BUF_PTR
+  lda #>FS_SECTOR_BUF
+  sta CF_BUF_PTR + 1
+  ldx #$00
+@FsCalcLoop:
+  ldy #FS_ENTRY_FLAGS
+  lda (CF_BUF_PTR),y
+  and #FS_FLAG_USED
+  beq @FsCalcNext               ; Skip unused
+  ; Get start sector + ceil(size/512)
+  ldy #FS_ENTRY_START
+  lda (CF_BUF_PTR),y
+  sta FS_START_SEC
+  iny
+  lda (CF_BUF_PTR),y
+  sta FS_START_SEC + 1
+  ; Get file size
+  ldy #FS_ENTRY_FSIZE
+  lda (CF_BUF_PTR),y
+  sta FS_FILE_SIZE
+  iny
+  lda (CF_BUF_PTR),y
+  sta FS_FILE_SIZE + 1
+  ; Calculate sectors used = (size + 511) / 512 = (size + 511) >> 9
+  ; = (size_hi + 1) if size_lo > 0, else size_hi / 2... simplify:
+  ; sectors = (size >> 9) rounded up = high_byte >> 1, plus 1 if any remainder
+  lda FS_FILE_SIZE + 1          ; High byte of size
+  lsr a                         ; Divide by 2 (each sector = 512 = 2 pages)
+  sta FS_SEC_COUNT
+  ; Check if there's a remainder (low byte != 0 or high byte bit 0 was set)
+  lda FS_FILE_SIZE + 1
+  and #$01                      ; Was high byte odd?
+  bne @FsCalcRound
+  lda FS_FILE_SIZE              ; Low byte non-zero?
+  beq @FsCalcNoRound
+@FsCalcRound:
+  inc FS_SEC_COUNT              ; Round up
+@FsCalcNoRound:
+  ; End sector = start + sector count
+  lda FS_START_SEC
+  clc
+  adc FS_SEC_COUNT
+  pha
+  lda FS_START_SEC + 1
+  adc #$00
+  tax                           ; X = end sector high
+  pla                           ; A = end sector low
+  ; Compare with FS_NEXT_SEC — keep the larger value
+  cpx FS_NEXT_SEC + 1
+  bcc @FsCalcNext               ; End < FS_NEXT_SEC, skip
+  bne @FsCalcUpdate             ; End high > FS_NEXT_SEC high, update
+  cmp FS_NEXT_SEC
+  bcc @FsCalcNext               ; End low < FS_NEXT_SEC low
+@FsCalcUpdate:
+  sta FS_NEXT_SEC
+  stx FS_NEXT_SEC + 1
+@FsCalcNext:
+  ; Advance CF_BUF_PTR by 32
+  lda CF_BUF_PTR
+  clc
+  adc #FS_ENTRY_SIZE
+  sta CF_BUF_PTR
+  bcc @FsCalcNoCarry
+  inc CF_BUF_PTR + 1
+@FsCalcNoCarry:
+  inx
+  cpx #FS_MAX_FILES
+  bne @FsCalcLoop
+  rts
+
+; FsDirectory — Print directory listing of all used entries
+; Output via Chrout (respects current IO_MODE)
+; Modifies: Flags, A, X, Y
+FsDirectory:
+  jsr FsReadDir                 ; Load directory sector
+  bcc @FsDirStart
+  rts                           ; Error reading directory
+@FsDirStart:
+  lda #<FS_SECTOR_BUF
+  sta CF_BUF_PTR
+  lda #>FS_SECTOR_BUF
+  sta CF_BUF_PTR + 1
+  ldx #$00                      ; Entry counter
+@FsDirLoop:
+  phx
+  ldy #FS_ENTRY_FLAGS
+  lda (CF_BUF_PTR),y
+  and #FS_FLAG_USED
+  beq @FsDirNext                ; Skip unused entries
+  ; Print filename (8 chars)
+  ldy #$00
+@FsDirName:
+  lda (CF_BUF_PTR),y
+  jsr Chrout
+  iny
+  cpy #$08
+  bne @FsDirName
+  ; Print dot separator
+  lda #'.'
+  jsr Chrout
+  ; Print extension (3 chars)
+@FsDirExt:
+  lda (CF_BUF_PTR),y
+  jsr Chrout
+  iny
+  cpy #$0B
+  bne @FsDirExt
+  ; Print space
+  lda #' '
+  jsr Chrout
+  ; Print file size in decimal
+  ldy #FS_ENTRY_FSIZE
+  lda (CF_BUF_PTR),y
+  sta FS_FILE_SIZE
+  iny
+  lda (CF_BUF_PTR),y
+  sta FS_FILE_SIZE + 1
+  jsr FsPrintSize
+  ; Print newline
+  lda #$0D
+  jsr Chrout
+  lda #$0A
+  jsr Chrout
+@FsDirNext:
+  ; Advance CF_BUF_PTR by 32
+  lda CF_BUF_PTR
+  clc
+  adc #FS_ENTRY_SIZE
+  sta CF_BUF_PTR
+  bcc @FsDirNoCarry
+  inc CF_BUF_PTR + 1
+@FsDirNoCarry:
+  plx
+  inx
+  cpx #FS_MAX_FILES
+  bne @FsDirLoop
+  rts
+
+; FsPrintSize — Print 16-bit value in FS_FILE_SIZE as decimal
+; Modifies: Flags, A, X, Y
+FsPrintSize:
+  ; Convert 16-bit value to decimal digits (up to 5 digits for 0-65535)
+  ; Use successive subtraction of powers of 10
+  ldx #$00                      ; Digit index / leading zero suppression
+  ldy #$00                      ; Power-of-10 table index
+@FsPrintSizeLoop:
+  lda #'0' - 1                  ; Start character below '0'
+  sta FS_DIR_IDX                ; Reuse as digit scratch
+@FsPrintSub:
+  inc FS_DIR_IDX
+  lda FS_FILE_SIZE
+  sec
+  sbc @FsPow10Lo,y
+  pha
+  lda FS_FILE_SIZE + 1
+  sbc @FsPow10Hi,y
+  bcc @FsPrintSizeDig           ; Underflow — done subtracting
+  sta FS_FILE_SIZE + 1
+  pla
+  sta FS_FILE_SIZE
+  bra @FsPrintSub
+@FsPrintSizeDig:
+  pla                           ; Discard underflowed low byte
+  lda FS_DIR_IDX
+  cmp #'0'
+  bne @FsPrintSizeOut           ; Non-zero digit
+  cpx #$00
+  beq @FsPrintSizeSkip          ; Suppress leading zeros
+@FsPrintSizeOut:
+  jsr Chrout
+  inx                           ; Mark that we've printed a digit
+@FsPrintSizeSkip:
+  iny
+  cpy #$04                      ; 4 powers of 10 (10000, 1000, 100, 10)
+  bne @FsPrintSizeLoop
+  ; Always print ones digit
+  lda FS_FILE_SIZE
+  ora #'0'                      ; Low byte is 0-9 at this point
+  jsr Chrout
+  rts
+@FsPow10Lo: .byte <10000, <1000, <100, <10
+@FsPow10Hi: .byte >10000, >1000, >100, >10
+
+; FsLoadFile — Load file from CF into PROGRAM_START ($0800)
+; Input: STR_PTR ($02-$03) points to null-terminated filename
+; Output: Carry clear = success, FS_FILE_SIZE = bytes loaded
+;         Carry set = file not found or read error
+; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+FsLoadFile:
+  jsr FsParseName               ; Parse filename into FS_FNAME_BUF
+  jsr FsReadDir                 ; Read directory sector
+  bcs @FsLoadErr
+  jsr FsFindFile                ; Search for filename
+  bcs @FsLoadErr                ; Not found
+  ; Read file metadata from entry
+  ldy #FS_ENTRY_START
+  lda (CF_BUF_PTR),y
+  sta FS_START_SEC
+  iny
+  lda (CF_BUF_PTR),y
+  sta FS_START_SEC + 1
+  ldy #FS_ENTRY_FSIZE
+  lda (CF_BUF_PTR),y
+  sta FS_FILE_SIZE
+  iny
+  lda (CF_BUF_PTR),y
+  sta FS_FILE_SIZE + 1
+  ; Calculate number of sectors to read
+  lda FS_FILE_SIZE + 1
+  lsr a
+  sta FS_SEC_COUNT
+  lda FS_FILE_SIZE + 1
+  and #$01
+  bne @FsLoadRound
+  lda FS_FILE_SIZE
+  beq @FsLoadNoRound
+@FsLoadRound:
+  inc FS_SEC_COUNT
+@FsLoadNoRound:
+  ; Set up LBA starting at file's start sector
+  lda FS_START_SEC
+  sta CF_LBA
+  lda FS_START_SEC + 1
+  sta CF_LBA + 1
+  stz CF_LBA + 2
+  stz CF_LBA + 3
+  ; Set destination pointer to PROGRAM_START
+  lda #<PROGRAM_START
+  sta CF_BUF_PTR
+  lda #>PROGRAM_START
+  sta CF_BUF_PTR + 1
+  ; Read sectors
+  ldx FS_SEC_COUNT
+  beq @FsLoadOk                 ; Zero-size file
+@FsLoadSec:
+  phx
+  jsr StReadSector              ; Read sector (advances CF_BUF_PTR by 512)
+  bcs @FsLoadSecErr
+  ; Increment LBA
+  inc CF_LBA
+  bne @FsLoadSecNext
+  inc CF_LBA + 1
+@FsLoadSecNext:
+  plx
+  dex
+  bne @FsLoadSec
+@FsLoadOk:
+  clc
+  rts
+@FsLoadSecErr:
+  plx                           ; Balance stack
+@FsLoadErr:
+  sec
+  rts
+
+; FsSaveFile — Save data from PROGRAM_START to CF
+; Input: STR_PTR ($02-$03) points to null-terminated filename
+;        FS_FILE_SIZE ($034A-$034B) = number of bytes to save
+; Output: Carry clear = success, Carry set = error (directory full or write error)
+; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+FsSaveFile:
+  jsr FsParseName               ; Parse filename into FS_FNAME_BUF
+  jsr FsReadDir                 ; Read directory sector
+  bcc @FsSaveReadOk
+  jmp @FsSaveErr
+@FsSaveReadOk:
+  ; Try to find existing file with same name
+  jsr FsFindFile
+  bcc @FsSaveOverwrite
+  ; Not found — find a free slot
+  jsr FsFindFree
+  bcc @FsSaveAlloc
+  jmp @FsSaveErr                ; Directory full
+@FsSaveOverwrite:
+  ; CF_BUF_PTR already points to the existing entry — clear old flags
+  ldy #FS_ENTRY_FLAGS
+  lda #$00
+  sta (CF_BUF_PTR),y            ; Mark old entry as free
+  ; Find a free slot (could be the one we just freed or another)
+  jsr FsFindFree
+  bcc @FsSaveAlloc
+  jmp @FsSaveErr
+@FsSaveAlloc:
+  ; Calculate next free sector
+  jsr FsCalcNextSec
+  ; Calculate sectors needed
+  lda FS_FILE_SIZE + 1
+  lsr a
+  sta FS_SEC_COUNT
+  lda FS_FILE_SIZE + 1
+  and #$01
+  bne @FsSaveRound
+  lda FS_FILE_SIZE
+  beq @FsSaveNoRound
+@FsSaveRound:
+  inc FS_SEC_COUNT
+@FsSaveNoRound:
+  ; Fill in directory entry at CF_BUF_PTR
+  ; Copy filename (11 bytes)
+  ldy #$00
+@FsSaveCopyName:
+  lda FS_FNAME_BUF,y
+  sta (CF_BUF_PTR),y
+  iny
+  cpy #11
+  bne @FsSaveCopyName
+  ; Set flags = in use
+  lda #FS_FLAG_USED
+  sta (CF_BUF_PTR),y            ; Y = 11 = FS_ENTRY_FLAGS
+  ; Set start sector
+  ldy #FS_ENTRY_START
+  lda FS_NEXT_SEC
+  sta (CF_BUF_PTR),y
+  sta FS_START_SEC
+  iny
+  lda FS_NEXT_SEC + 1
+  sta (CF_BUF_PTR),y
+  sta FS_START_SEC + 1
+  ; Set file size
+  ldy #FS_ENTRY_FSIZE
+  lda FS_FILE_SIZE
+  sta (CF_BUF_PTR),y
+  iny
+  lda FS_FILE_SIZE + 1
+  sta (CF_BUF_PTR),y
+  ; Clear reserved bytes
+  ldy #$10
+  lda #$00
+@FsSaveClearRsv:
+  sta (CF_BUF_PTR),y
+  iny
+  cpy #FS_ENTRY_SIZE
+  bne @FsSaveClearRsv
+  ; Write updated directory back to CF
+  jsr FsWriteDir
+  bcs @FsSaveErr
+  ; Now write file data sectors
+  lda FS_START_SEC
+  sta CF_LBA
+  lda FS_START_SEC + 1
+  sta CF_LBA + 1
+  stz CF_LBA + 2
+  stz CF_LBA + 3
+  ; Source = PROGRAM_START
+  lda #<PROGRAM_START
+  sta CF_BUF_PTR
+  lda #>PROGRAM_START
+  sta CF_BUF_PTR + 1
+  ldx FS_SEC_COUNT
+  beq @FsSaveOk                 ; Zero-size file
+@FsSaveSec:
+  phx
+  jsr StWriteSector             ; Write sector (advances CF_BUF_PTR by 512)
+  bcs @FsSaveSecErr
+  ; Increment LBA
+  inc CF_LBA
+  bne @FsSaveSecNext
+  inc CF_LBA + 1
+@FsSaveSecNext:
+  plx
+  dex
+  bne @FsSaveSec
+@FsSaveOk:
+  clc
+  rts
+@FsSaveSecErr:
+  plx                           ; Balance stack
+@FsSaveErr:
+  sec
+  rts
+
 ; Draw the splash screen
 ; Uses video output to display centered title and boot menu
 ; Modifies: Flags, A, X, Y
@@ -678,9 +1592,16 @@ Irq:
   bra @IrqExit
 @IrqCheckKB:
   lda GPIO_IFR
-  and #GPIO_INT_CB1             ; Check if CB1 (keyboard data ready) caused the interrupt
+  and #GPIO_INT_CB1             ; Check if CB1 (matrix keyboard data ready) caused the interrupt
+  beq @IrqCheckPS2              ; If not, check PS/2 keyboard
+  lda GPIO_PORTB                ; Read ASCII byte from matrix keyboard (also clears CB1 IFR flag)
+  jsr WriteBuffer               ; Store to the input buffer
+  bra @IrqExit
+@IrqCheckPS2:
+  lda GPIO_IFR
+  and #GPIO_INT_CA1             ; Check if CA1 (PS/2 keyboard data ready) caused the interrupt
   beq @IrqExit                  ; If not, exit
-  lda GPIO_PORTB                ; Read ASCII byte from keyboard (also clears CB1 IFR flag)
+  lda GPIO_PORTA                ; Read ASCII byte from PS/2 keyboard (also clears CA1 IFR flag)
   jsr WriteBuffer               ; Store to the input buffer
 @IrqExit:
   plx

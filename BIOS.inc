@@ -7,6 +7,9 @@ ZP                  := $00
 READ_PTR            := $00
 WRITE_PTR           := $01
 STR_PTR             := $02               ; $02-$03 - String pointer (2 bytes)
+; $04-$23 reserved by BASIC interpreter
+CF_BUF_PTR          := $24               ; $24-$25 - CF sector data buffer pointer (2 bytes)
+CF_LBA              := $26               ; $26-$29 - CF 28-bit LBA address (4 bytes, little-endian)
 
 ; Stack
 STACK               := $0100             ; $0100-$01FF
@@ -23,12 +26,22 @@ IO_MODE             := $0306             ; Bit 0: 0=video, 1=serial output
 VID_CURSOR_X        := $0307             ; Video cursor column (0-39)
 VID_CURSOR_Y        := $0308             ; Video cursor row (0-23)
 VID_CURSOR_ADDR     := $0309             ; Video cursor VRAM address ($0309-$030A)
-                                         ; $030B-$030F Reserved
+RTC_BUF_CENT        := $030B             ; Century value from last RtcReadDate / for RtcWriteDate
+RTC_TMP             := $030C             ; Scratch byte for BCD conversion
+                                         ; $030D-$030F Reserved
 BRK_P               := $0310             ; Saved P at time of BRK
 BRK_PCL             := $0311             ; Saved PCL at time of BRK (points to BRK+2)
 BRK_PCH             := $0312             ; Saved PCH at time of BRK
                                          ; $0313-$031F Reserved
 SCROLL_BUF          := $0320             ; $0320-$0347 - 40-byte scroll temp buffer
+; Filesystem temp vars ($0348+)
+FS_START_SEC        := $0348             ; $0348-$0349 - File start sector (2 bytes)
+FS_FILE_SIZE        := $034A             ; $034A-$034B - File size in bytes (2 bytes)
+FS_SEC_COUNT        := $034C             ; Number of sectors to read/write
+FS_DIR_IDX          := $034D             ; Directory entry index (0-15)
+FS_NEXT_SEC         := $034E             ; $034E-$034F - Next free sector for allocation (2 bytes)
+FS_FNAME_BUF        := $0350             ; $0350-$035A - 11-byte filename buffer (8 name + 3 ext)
+FS_SECTOR_BUF       := $0600             ; $0600-$07FF - 512-byte sector buffer (overlaps BAS_TOKBUF/BAS_STRBUF)
 
 ; User Vars
 USER_VARS           := $0400             ; $0400-$07FF
@@ -44,7 +57,7 @@ RAM_BANK_L          := $83FF             ; Write-only RAM bank latch, value ($00
 RAM_DATA_H          := $8400             ; R/W ($8400-$87FE)
 RAM_BANK_H          := $87FF             ; Write-only RAM bank latch, value ($00-$FF) sets which of 256 ~1K banks of RAM is selected
 
-; RTC Card | IO 3 | $8800-$881F
+; RTC Card (DS1511Y) | IO 3 | $8800-$881F
 RTC_SEC             := $8800
 RTC_MIN             := $8801
 RTC_HR              := $8802
@@ -63,8 +76,10 @@ RTC_CTRL_A          := $880E
 RTC_CTRL_B          := $880F
 RTC_RAM_ADDR        := $8810
 RTC_RAM_DATA        := $8813
+; DS1511Y Control Register B Bits
+RTC_CTRL_B_TE       := %10000000         ; Transfer Enable — set to inhibit updates during write
 
-; Storage Card | IO 4 | $8C00-$8C07
+; Storage Card (CompactFlash 8-bit IDE) | IO 4 | $8C00-$8C07
 ST_DATA             := $8C00             ; R/W
 ST_ERROR            := $8C01             ; Read
 ST_FEATURE          := $8C01             ; Write
@@ -88,8 +103,23 @@ ST_STATUS_DSC       := %00010000
 ST_STATUS_DWF       := %00100000
 ST_STATUS_RDY       := %01000000
 ST_STATUS_BSY       := %10000000
+; ATA Command Constants
+ST_CMD_READ         := $20               ; Read Sectors
+ST_CMD_WRITE        := $30               ; Write Sectors
+ST_CMD_SET_FEAT     := $EF               ; Set Features
+ST_FEAT_8BIT        := $01               ; Enable 8-bit data I/O
+ST_LBA3_MASTER      := $E0               ; LBA mode, master drive (bits 7-5 = 111, bit 4 = 0)
+; Filesystem Constants
+FS_DIR_LBA          = 0                  ; Directory sector at LBA 0
+FS_DATA_START       = 1                  ; Data sectors start at LBA 1
+FS_MAX_FILES        = 16                 ; Max directory entries
+FS_ENTRY_SIZE       = 32                 ; Bytes per directory entry
+FS_ENTRY_FLAGS      = 11                 ; Offset of flags byte within entry
+FS_ENTRY_START      = 12                 ; Offset of start sector (2 bytes)
+FS_ENTRY_FSIZE      = 14                 ; Offset of file size (2 bytes)
+FS_FLAG_USED        = %00000001          ; Entry in use
 
-; Serial Card / Serial Card Pro | IO 5 | $9000-$9003
+; Serial Card / Serial Card Pro (R65C51) | IO 5 | $9000-$9003
 SC_DATA             := $9000             ; R/W
 SC_RESET            := $9001             ; Write
 SC_STATUS           := $9001             ; Read
@@ -104,7 +134,7 @@ SC_STATUS_OVR       := %00000100         ; Overrun
 SC_STATUS_FRME      := %00000010         ; Framing Error
 SC_STATUS_PARE      := %00000001         ; Parity Error
 
-; GPIO Card / Input Board | IO 6 | $9400-$940F
+; GPIO Card / Input Board (65C22) | IO 6 | $9400-$940F
 GPIO_PORTB          := $9400
 GPIO_PORTA          := $9401
 GPIO_DDRB           := $9402
@@ -122,9 +152,14 @@ GPIO_IFR            := $940D
 GPIO_IER            := $940E
 GPIO_ORA            := $940F
 ; Keyboard (VIA) Constants
-GPIO_PCR_CB2_LO     := %11000000         ; PCR CB2 mode = manual output low (enables keyboard controller)
+GPIO_PCR_CB2_LO     := %11000000         ; PCR CB2 mode = manual output low (enables matrix keyboard encoder)
+GPIO_PCR_CB2_HI     := %11100000         ; PCR CB2 mode = manual output high (disables matrix keyboard encoder)
 GPIO_PCR_CB1_NEG    := %00000000         ; PCR CB1 active on falling (high-to-low) edge
+GPIO_PCR_CA2_LO     := %00001100         ; PCR CA2 mode = manual output low (enables PS/2 keyboard encoder)
+GPIO_PCR_CA2_HI     := %00001110         ; PCR CA2 mode = manual output high (disables PS/2 keyboard encoder)
+GPIO_PCR_CA1_NEG    := %00000000         ; PCR CA1 active on falling (high-to-low) edge
 GPIO_INT_CB1        := %00010000         ; IFR/IER bit 4 = CB1 interrupt flag/enable
+GPIO_INT_CA1        := %00000010         ; IFR/IER bit 1 = CA1 interrupt flag/enable
 GPIO_IER_SET        := %10000000         ; IER bit 7 = set mode (1=set named bits, 0=clear)
 
 ; Sound Card (SID/ARMSID) | IO 7 | $9800-$981C
