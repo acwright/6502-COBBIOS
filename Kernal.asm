@@ -1497,8 +1497,18 @@ FsSaveFile:
   bcc @FsSaveAlloc
   jmp @FsSaveErr
 @FsSaveAlloc:
-  ; Calculate next free sector
+  ; Save CF_BUF_PTR (points to free entry from FsFindFree)
+  lda CF_BUF_PTR
+  pha
+  lda CF_BUF_PTR + 1
+  pha
+  ; Calculate next free sector (clobbers CF_BUF_PTR)
   jsr FsCalcNextSec
+  ; Restore CF_BUF_PTR to the free directory entry
+  pla
+  sta CF_BUF_PTR + 1
+  pla
+  sta CF_BUF_PTR
   ; Calculate sectors needed
   lda FS_FILE_SIZE + 1
   lsr a

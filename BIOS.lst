@@ -1734,614 +1734,624 @@ Current file: BIOS.asm
 0008BBr 2  90 03          bcc @FsSaveAlloc
 0008BDr 2  4C rr rr       jmp @FsSaveErr
 0008C0r 2               @FsSaveAlloc:
-0008C0r 2                 ; Calculate next free sector
-0008C0r 2  20 rr rr       jsr FsCalcNextSec
-0008C3r 2                 ; Calculate sectors needed
-0008C3r 2  AD 4B 03       lda FS_FILE_SIZE + 1
-0008C6r 2  4A             lsr a
-0008C7r 2  8D 4C 03       sta FS_SEC_COUNT
-0008CAr 2  AD 4B 03       lda FS_FILE_SIZE + 1
-0008CDr 2  29 01          and #$01
-0008CFr 2  D0 05          bne @FsSaveRound
-0008D1r 2  AD 4A 03       lda FS_FILE_SIZE
-0008D4r 2  F0 03          beq @FsSaveNoRound
-0008D6r 2               @FsSaveRound:
-0008D6r 2  EE 4C 03       inc FS_SEC_COUNT
-0008D9r 2               @FsSaveNoRound:
-0008D9r 2                 ; Fill in directory entry at CF_BUF_PTR
-0008D9r 2                 ; Copy filename (11 bytes)
-0008D9r 2  A0 00          ldy #$00
-0008DBr 2               @FsSaveCopyName:
-0008DBr 2  B9 50 03       lda FS_FNAME_BUF,y
-0008DEr 2  91 24          sta (CF_BUF_PTR),y
-0008E0r 2  C8             iny
-0008E1r 2  C0 0B          cpy #11
-0008E3r 2  D0 F6          bne @FsSaveCopyName
-0008E5r 2                 ; Set flags = in use
-0008E5r 2  A9 01          lda #FS_FLAG_USED
-0008E7r 2  91 24          sta (CF_BUF_PTR),y            ; Y = 11 = FS_ENTRY_FLAGS
-0008E9r 2                 ; Set start sector
-0008E9r 2  A0 0C          ldy #FS_ENTRY_START
-0008EBr 2  AD 4E 03       lda FS_NEXT_SEC
-0008EEr 2  91 24          sta (CF_BUF_PTR),y
-0008F0r 2  8D 48 03       sta FS_START_SEC
-0008F3r 2  C8             iny
-0008F4r 2  AD 4F 03       lda FS_NEXT_SEC + 1
-0008F7r 2  91 24          sta (CF_BUF_PTR),y
-0008F9r 2  8D 49 03       sta FS_START_SEC + 1
-0008FCr 2                 ; Set file size
-0008FCr 2  A0 0E          ldy #FS_ENTRY_FSIZE
-0008FEr 2  AD 4A 03       lda FS_FILE_SIZE
-000901r 2  91 24          sta (CF_BUF_PTR),y
-000903r 2  C8             iny
-000904r 2  AD 4B 03       lda FS_FILE_SIZE + 1
-000907r 2  91 24          sta (CF_BUF_PTR),y
-000909r 2                 ; Clear reserved bytes
-000909r 2  A0 10          ldy #$10
-00090Br 2  A9 00          lda #$00
-00090Dr 2               @FsSaveClearRsv:
+0008C0r 2                 ; Save CF_BUF_PTR (points to free entry from FsFindFree)
+0008C0r 2  A5 24          lda CF_BUF_PTR
+0008C2r 2  48             pha
+0008C3r 2  A5 25          lda CF_BUF_PTR + 1
+0008C5r 2  48             pha
+0008C6r 2                 ; Calculate next free sector (clobbers CF_BUF_PTR)
+0008C6r 2  20 rr rr       jsr FsCalcNextSec
+0008C9r 2                 ; Restore CF_BUF_PTR to the free directory entry
+0008C9r 2  68             pla
+0008CAr 2  85 25          sta CF_BUF_PTR + 1
+0008CCr 2  68             pla
+0008CDr 2  85 24          sta CF_BUF_PTR
+0008CFr 2                 ; Calculate sectors needed
+0008CFr 2  AD 4B 03       lda FS_FILE_SIZE + 1
+0008D2r 2  4A             lsr a
+0008D3r 2  8D 4C 03       sta FS_SEC_COUNT
+0008D6r 2  AD 4B 03       lda FS_FILE_SIZE + 1
+0008D9r 2  29 01          and #$01
+0008DBr 2  D0 05          bne @FsSaveRound
+0008DDr 2  AD 4A 03       lda FS_FILE_SIZE
+0008E0r 2  F0 03          beq @FsSaveNoRound
+0008E2r 2               @FsSaveRound:
+0008E2r 2  EE 4C 03       inc FS_SEC_COUNT
+0008E5r 2               @FsSaveNoRound:
+0008E5r 2                 ; Fill in directory entry at CF_BUF_PTR
+0008E5r 2                 ; Copy filename (11 bytes)
+0008E5r 2  A0 00          ldy #$00
+0008E7r 2               @FsSaveCopyName:
+0008E7r 2  B9 50 03       lda FS_FNAME_BUF,y
+0008EAr 2  91 24          sta (CF_BUF_PTR),y
+0008ECr 2  C8             iny
+0008EDr 2  C0 0B          cpy #11
+0008EFr 2  D0 F6          bne @FsSaveCopyName
+0008F1r 2                 ; Set flags = in use
+0008F1r 2  A9 01          lda #FS_FLAG_USED
+0008F3r 2  91 24          sta (CF_BUF_PTR),y            ; Y = 11 = FS_ENTRY_FLAGS
+0008F5r 2                 ; Set start sector
+0008F5r 2  A0 0C          ldy #FS_ENTRY_START
+0008F7r 2  AD 4E 03       lda FS_NEXT_SEC
+0008FAr 2  91 24          sta (CF_BUF_PTR),y
+0008FCr 2  8D 48 03       sta FS_START_SEC
+0008FFr 2  C8             iny
+000900r 2  AD 4F 03       lda FS_NEXT_SEC + 1
+000903r 2  91 24          sta (CF_BUF_PTR),y
+000905r 2  8D 49 03       sta FS_START_SEC + 1
+000908r 2                 ; Set file size
+000908r 2  A0 0E          ldy #FS_ENTRY_FSIZE
+00090Ar 2  AD 4A 03       lda FS_FILE_SIZE
 00090Dr 2  91 24          sta (CF_BUF_PTR),y
 00090Fr 2  C8             iny
-000910r 2  C0 20          cpy #FS_ENTRY_SIZE
-000912r 2  D0 F9          bne @FsSaveClearRsv
-000914r 2                 ; Write updated directory back to CF
-000914r 2  20 rr rr       jsr FsWriteDir
-000917r 2  B0 2E          bcs @FsSaveErr
-000919r 2                 ; Now write file data sectors
-000919r 2  AD 48 03       lda FS_START_SEC
-00091Cr 2  85 26          sta CF_LBA
-00091Er 2  AD 49 03       lda FS_START_SEC + 1
-000921r 2  85 27          sta CF_LBA + 1
-000923r 2  64 28          stz CF_LBA + 2
-000925r 2  64 29          stz CF_LBA + 3
-000927r 2                 ; Source = PROGRAM_START
-000927r 2  A9 00          lda #<PROGRAM_START
-000929r 2  85 24          sta CF_BUF_PTR
-00092Br 2  A9 08          lda #>PROGRAM_START
-00092Dr 2  85 25          sta CF_BUF_PTR + 1
-00092Fr 2  AE 4C 03       ldx FS_SEC_COUNT
-000932r 2  F0 10          beq @FsSaveOk                 ; Zero-size file
-000934r 2               @FsSaveSec:
-000934r 2  DA             phx
-000935r 2  20 rr rr       jsr StWriteSector             ; Write sector (advances CF_BUF_PTR by 512)
-000938r 2  B0 0C          bcs @FsSaveSecErr
-00093Ar 2                 ; Increment LBA
-00093Ar 2  E6 26          inc CF_LBA
-00093Cr 2  D0 02          bne @FsSaveSecNext
-00093Er 2  E6 27          inc CF_LBA + 1
-000940r 2               @FsSaveSecNext:
-000940r 2  FA             plx
-000941r 2  CA             dex
-000942r 2  D0 F0          bne @FsSaveSec
-000944r 2               @FsSaveOk:
-000944r 2  18             clc
-000945r 2  60             rts
-000946r 2               @FsSaveSecErr:
-000946r 2  FA             plx                           ; Balance stack
-000947r 2               @FsSaveErr:
-000947r 2  38             sec
-000948r 2  60             rts
-000949r 2               
-000949r 2               ; === Serial Intel HEX LOAD/SAVE ===
-000949r 2               ; Intel HEX record format: :LLAAAATT[DD...]CC
-000949r 2               ;   : = start code
-000949r 2               ;   LL = byte count (2 hex digits)
-000949r 2               ;   AAAA = address (4 hex digits, big-endian)
-000949r 2               ;   TT = record type (00=data, 01=EOF)
-000949r 2               ;   DD = data bytes (2 hex digits each)
-000949r 2               ;   CC = checksum (two's complement of sum of all bytes LL..DD)
-000949r 2               
-000949r 2               ; --- Hex Conversion Utilities ---
-000949r 2               
-000949r 2               ; HexToNibble — Convert ASCII hex char to 4-bit value
-000949r 2               ; Input: A = ASCII hex character ('0'-'9', 'A'-'F', 'a'-'f')
-000949r 2               ; Output: A = 0-15, Carry clear = valid, Carry set = invalid
-000949r 2               ; Modifies: Flags
-000949r 2               HexToNibble:
-000949r 2  C9 30          cmp #'0'
-00094Br 2  90 23          bcc @HexNibInvalid
-00094Dr 2  C9 3A          cmp #'9' + 1
-00094Fr 2  90 15          bcc @HexNibDigit              ; '0'-'9'
-000951r 2  C9 41          cmp #'A'
-000953r 2  90 1B          bcc @HexNibInvalid
-000955r 2  C9 47          cmp #'F' + 1
-000957r 2  90 12          bcc @HexNibAlpha              ; 'A'-'F'
-000959r 2  C9 61          cmp #'a'
-00095Br 2  90 13          bcc @HexNibInvalid
-00095Dr 2  C9 67          cmp #'f' + 1
-00095Fr 2  B0 0F          bcs @HexNibInvalid
-000961r 2                 ; 'a'-'f': subtract $57 to get 10-15
-000961r 2  38             sec
-000962r 2  E9 57          sbc #$57
-000964r 2  18             clc
-000965r 2  60             rts
-000966r 2               @HexNibDigit:
-000966r 2  38             sec
-000967r 2  E9 30          sbc #'0'                      ; Convert '0'-'9' → 0-9
-000969r 2  18             clc
-00096Ar 2  60             rts
-00096Br 2               @HexNibAlpha:
-00096Br 2  38             sec
-00096Cr 2  E9 37          sbc #$37                      ; Convert 'A'-'F' → 10-15
-00096Er 2  18             clc
-00096Fr 2  60             rts
-000970r 2               @HexNibInvalid:
-000970r 2  38             sec
+000910r 2  AD 4B 03       lda FS_FILE_SIZE + 1
+000913r 2  91 24          sta (CF_BUF_PTR),y
+000915r 2                 ; Clear reserved bytes
+000915r 2  A0 10          ldy #$10
+000917r 2  A9 00          lda #$00
+000919r 2               @FsSaveClearRsv:
+000919r 2  91 24          sta (CF_BUF_PTR),y
+00091Br 2  C8             iny
+00091Cr 2  C0 20          cpy #FS_ENTRY_SIZE
+00091Er 2  D0 F9          bne @FsSaveClearRsv
+000920r 2                 ; Write updated directory back to CF
+000920r 2  20 rr rr       jsr FsWriteDir
+000923r 2  B0 2E          bcs @FsSaveErr
+000925r 2                 ; Now write file data sectors
+000925r 2  AD 48 03       lda FS_START_SEC
+000928r 2  85 26          sta CF_LBA
+00092Ar 2  AD 49 03       lda FS_START_SEC + 1
+00092Dr 2  85 27          sta CF_LBA + 1
+00092Fr 2  64 28          stz CF_LBA + 2
+000931r 2  64 29          stz CF_LBA + 3
+000933r 2                 ; Source = PROGRAM_START
+000933r 2  A9 00          lda #<PROGRAM_START
+000935r 2  85 24          sta CF_BUF_PTR
+000937r 2  A9 08          lda #>PROGRAM_START
+000939r 2  85 25          sta CF_BUF_PTR + 1
+00093Br 2  AE 4C 03       ldx FS_SEC_COUNT
+00093Er 2  F0 10          beq @FsSaveOk                 ; Zero-size file
+000940r 2               @FsSaveSec:
+000940r 2  DA             phx
+000941r 2  20 rr rr       jsr StWriteSector             ; Write sector (advances CF_BUF_PTR by 512)
+000944r 2  B0 0C          bcs @FsSaveSecErr
+000946r 2                 ; Increment LBA
+000946r 2  E6 26          inc CF_LBA
+000948r 2  D0 02          bne @FsSaveSecNext
+00094Ar 2  E6 27          inc CF_LBA + 1
+00094Cr 2               @FsSaveSecNext:
+00094Cr 2  FA             plx
+00094Dr 2  CA             dex
+00094Er 2  D0 F0          bne @FsSaveSec
+000950r 2               @FsSaveOk:
+000950r 2  18             clc
+000951r 2  60             rts
+000952r 2               @FsSaveSecErr:
+000952r 2  FA             plx                           ; Balance stack
+000953r 2               @FsSaveErr:
+000953r 2  38             sec
+000954r 2  60             rts
+000955r 2               
+000955r 2               ; === Serial Intel HEX LOAD/SAVE ===
+000955r 2               ; Intel HEX record format: :LLAAAATT[DD...]CC
+000955r 2               ;   : = start code
+000955r 2               ;   LL = byte count (2 hex digits)
+000955r 2               ;   AAAA = address (4 hex digits, big-endian)
+000955r 2               ;   TT = record type (00=data, 01=EOF)
+000955r 2               ;   DD = data bytes (2 hex digits each)
+000955r 2               ;   CC = checksum (two's complement of sum of all bytes LL..DD)
+000955r 2               
+000955r 2               ; --- Hex Conversion Utilities ---
+000955r 2               
+000955r 2               ; HexToNibble — Convert ASCII hex char to 4-bit value
+000955r 2               ; Input: A = ASCII hex character ('0'-'9', 'A'-'F', 'a'-'f')
+000955r 2               ; Output: A = 0-15, Carry clear = valid, Carry set = invalid
+000955r 2               ; Modifies: Flags
+000955r 2               HexToNibble:
+000955r 2  C9 30          cmp #'0'
+000957r 2  90 23          bcc @HexNibInvalid
+000959r 2  C9 3A          cmp #'9' + 1
+00095Br 2  90 15          bcc @HexNibDigit              ; '0'-'9'
+00095Dr 2  C9 41          cmp #'A'
+00095Fr 2  90 1B          bcc @HexNibInvalid
+000961r 2  C9 47          cmp #'F' + 1
+000963r 2  90 12          bcc @HexNibAlpha              ; 'A'-'F'
+000965r 2  C9 61          cmp #'a'
+000967r 2  90 13          bcc @HexNibInvalid
+000969r 2  C9 67          cmp #'f' + 1
+00096Br 2  B0 0F          bcs @HexNibInvalid
+00096Dr 2                 ; 'a'-'f': subtract $57 to get 10-15
+00096Dr 2  38             sec
+00096Er 2  E9 57          sbc #$57
+000970r 2  18             clc
 000971r 2  60             rts
-000972r 2               
-000972r 2               ; NibbleToHex — Convert 4-bit value to ASCII hex character
-000972r 2               ; Input: A = value (low nibble only, 0-15)
-000972r 2               ; Output: A = ASCII hex character ('0'-'9', 'A'-'F')
-000972r 2               ; Modifies: Flags
-000972r 2               NibbleToHex:
-000972r 2  29 0F          and #$0F
-000974r 2  C9 0A          cmp #$0A
-000976r 2  90 04          bcc @NibHexDigit
-000978r 2  18             clc
-000979r 2  69 37          adc #$37                      ; 10-15 → 'A'-'F'
+000972r 2               @HexNibDigit:
+000972r 2  38             sec
+000973r 2  E9 30          sbc #'0'                      ; Convert '0'-'9' → 0-9
+000975r 2  18             clc
+000976r 2  60             rts
+000977r 2               @HexNibAlpha:
+000977r 2  38             sec
+000978r 2  E9 37          sbc #$37                      ; Convert 'A'-'F' → 10-15
+00097Ar 2  18             clc
 00097Br 2  60             rts
-00097Cr 2               @NibHexDigit:
-00097Cr 2  18             clc
-00097Dr 2  69 30          adc #'0'                      ; 0-9 → '0'-'9'
-00097Fr 2  60             rts
-000980r 2               
-000980r 2               ; SerialPrintHexByte — Print a byte as 2 hex ASCII chars to serial
-000980r 2               ; Input: A = byte to print
-000980r 2               ; Modifies: Flags, A
-000980r 2               SerialPrintHexByte:
-000980r 2  48             pha
-000981r 2  4A             lsr a                         ; Shift high nibble down
-000982r 2  4A             lsr a
-000983r 2  4A             lsr a
-000984r 2  4A             lsr a
-000985r 2  20 rr rr       jsr NibbleToHex
-000988r 2  20 rr rr       jsr SerialChrout              ; Print high nibble
-00098Br 2  68             pla
+00097Cr 2               @HexNibInvalid:
+00097Cr 2  38             sec
+00097Dr 2  60             rts
+00097Er 2               
+00097Er 2               ; NibbleToHex — Convert 4-bit value to ASCII hex character
+00097Er 2               ; Input: A = value (low nibble only, 0-15)
+00097Er 2               ; Output: A = ASCII hex character ('0'-'9', 'A'-'F')
+00097Er 2               ; Modifies: Flags
+00097Er 2               NibbleToHex:
+00097Er 2  29 0F          and #$0F
+000980r 2  C9 0A          cmp #$0A
+000982r 2  90 04          bcc @NibHexDigit
+000984r 2  18             clc
+000985r 2  69 37          adc #$37                      ; 10-15 → 'A'-'F'
+000987r 2  60             rts
+000988r 2               @NibHexDigit:
+000988r 2  18             clc
+000989r 2  69 30          adc #'0'                      ; 0-9 → '0'-'9'
+00098Br 2  60             rts
+00098Cr 2               
+00098Cr 2               ; SerialPrintHexByte — Print a byte as 2 hex ASCII chars to serial
+00098Cr 2               ; Input: A = byte to print
+00098Cr 2               ; Modifies: Flags, A
+00098Cr 2               SerialPrintHexByte:
 00098Cr 2  48             pha
-00098Dr 2  20 rr rr       jsr NibbleToHex               ; Low nibble (and #$0F inside NibbleToHex)
-000990r 2  20 rr rr       jsr SerialChrout              ; Print low nibble
-000993r 2  68             pla
-000994r 2  60             rts
-000995r 2               
-000995r 2               ; SerialReadHexByte — Read 2 hex ASCII chars from serial, return byte
-000995r 2               ; Blocks until 2 valid hex chars received
-000995r 2               ; Output: A = byte value, Carry clear = success, Carry set = invalid char
-000995r 2               ; Also adds result to HEX_CHKSUM
-000995r 2               ; Modifies: Flags, A
-000995r 2               SerialReadHexByte:
-000995r 2                 ; Wait for first hex char (high nibble)
-000995r 2               @SrHexWait1:
-000995r 2  20 rr rr       jsr BufferSize
-000998r 2  F0 FB          beq @SrHexWait1
-00099Ar 2  20 rr rr       jsr ReadBuffer
-00099Dr 2  20 rr rr       jsr HexToNibble
-0009A0r 2  B0 22          bcs @SrHexErr                 ; Invalid hex char
-0009A2r 2  0A             asl a                         ; Shift to high nibble
-0009A3r 2  0A             asl a
-0009A4r 2  0A             asl a
-0009A5r 2  0A             asl a
-0009A6r 2  8D 0F 03       sta HEX_RECTYPE               ; Temp storage for high nibble (reuse HEX_RECTYPE briefly)
-0009A9r 2                 ; Wait for second hex char (low nibble)
-0009A9r 2               @SrHexWait2:
-0009A9r 2  20 rr rr       jsr BufferSize
-0009ACr 2  F0 FB          beq @SrHexWait2
-0009AEr 2  20 rr rr       jsr ReadBuffer
-0009B1r 2  20 rr rr       jsr HexToNibble
-0009B4r 2  B0 0E          bcs @SrHexErr
-0009B6r 2  0D 0F 03       ora HEX_RECTYPE               ; Combine high and low nibbles
-0009B9r 2                 ; Add to running checksum
-0009B9r 2  48             pha
-0009BAr 2  18             clc
-0009BBr 2  6D 0D 03       adc HEX_CHKSUM
-0009BEr 2  8D 0D 03       sta HEX_CHKSUM
-0009C1r 2  68             pla
-0009C2r 2  18             clc                           ; Success
-0009C3r 2  60             rts
-0009C4r 2               @SrHexErr:
-0009C4r 2  38             sec
-0009C5r 2  60             rts
-0009C6r 2               
-0009C6r 2               ; --- Intel HEX Load ---
-0009C6r 2               
-0009C6r 2               ; HexLoadImpl — Receive Intel HEX records via serial and write to memory
-0009C6r 2               ; Switches IO_MODE to serial, parses records, validates checksums
-0009C6r 2               ; On data records (type $00): writes bytes to addresses specified in records
-0009C6r 2               ; On EOF record (type $01): finishes loading
-0009C6r 2               ; Output: Carry clear = success, Carry set = error (checksum fail or parse error)
-0009C6r 2               ;         On success, HEX_ADDR contains the last address written + 1
-0009C6r 2               ; Modifies: Flags, A, X, Y
-0009C6r 2               HexLoadImpl:
-0009C6r 2                 ; Save and switch IO_MODE to serial
-0009C6r 2  AD 06 03       lda IO_MODE
-0009C9r 2  8D 19 03       sta HEX_IO_SAVE
-0009CCr 2  A9 01          lda #$01                      ; Serial mode
-0009CEr 2  8D 06 03       sta IO_MODE
-0009D1r 2                 ; Print prompt
-0009D1r 2  A9 0D          lda #$0D
-0009D3r 2  20 rr rr       jsr SerialChrout
-0009D6r 2  A9 0A          lda #$0A
-0009D8r 2  20 rr rr       jsr SerialChrout
-0009DBr 2  A9 rr          lda #<@HexLoadMsg
-0009DDr 2  85 02          sta STR_PTR
-0009DFr 2  A9 rr          lda #>@HexLoadMsg
-0009E1r 2  85 03          sta STR_PTR + 1
-0009E3r 2  20 rr rr       jsr @SerialPrintStr
-0009E6r 2               
-0009E6r 2               @HexLoadRecord:
-0009E6r 2                 ; Wait for start code ':'
-0009E6r 2               @HexWaitColon:
-0009E6r 2  20 rr rr       jsr BufferSize
-0009E9r 2  F0 FB          beq @HexWaitColon
-0009EBr 2  20 rr rr       jsr ReadBuffer
-0009EEr 2  C9 3A          cmp #':'
-0009F0r 2  D0 F4          bne @HexWaitColon             ; Ignore chars until ':'
-0009F2r 2                 ; Reset checksum
-0009F2r 2  9C 0D 03       stz HEX_CHKSUM
-0009F5r 2                 ; Read byte count (LL)
-0009F5r 2  20 rr rr       jsr SerialReadHexByte
-0009F8r 2  B0 76          bcs @HexLoadFail
-0009FAr 2  8D 0E 03       sta HEX_BYTECNT
-0009FDr 2                 ; Read address high byte (AA)
-0009FDr 2  20 rr rr       jsr SerialReadHexByte
-000A00r 2  B0 6E          bcs @HexLoadFail
-000A02r 2  85 2B          sta HEX_PTR + 1
-000A04r 2                 ; Read address low byte (AA)
-000A04r 2  20 rr rr       jsr SerialReadHexByte
-000A07r 2  B0 67          bcs @HexLoadFail
-000A09r 2  85 2A          sta HEX_PTR
-000A0Br 2                 ; Read record type (TT)
-000A0Br 2  20 rr rr       jsr SerialReadHexByte
-000A0Er 2  B0 60          bcs @HexLoadFail
-000A10r 2  8D 0F 03       sta HEX_RECTYPE
-000A13r 2                 ; Check record type
-000A13r 2  C9 01          cmp #$01                      ; EOF record?
-000A15r 2  F0 32          beq @HexLoadEOF
-000A17r 2  C9 00          cmp #$00                      ; Data record?
-000A19r 2  D0 55          bne @HexLoadFail              ; Unknown record type — error
-000A1Br 2                 ; Data record — read data bytes
-000A1Br 2  A0 00          ldy #$00
-000A1Dr 2               @HexLoadData:
-000A1Dr 2  CC 0E 03       cpy HEX_BYTECNT
-000A20r 2  F0 0A          beq @HexLoadChecksum          ; All data bytes read
-000A22r 2  20 rr rr       jsr SerialReadHexByte
-000A25r 2  B0 49          bcs @HexLoadFail
-000A27r 2  91 2A          sta (HEX_PTR),y               ; Write byte to target address
-000A29r 2  C8             iny
-000A2Ar 2  80 F1          bra @HexLoadData
-000A2Cr 2               @HexLoadChecksum:
-000A2Cr 2                 ; Read checksum byte
-000A2Cr 2  20 rr rr       jsr SerialReadHexByte
-000A2Fr 2  B0 3F          bcs @HexLoadFail
-000A31r 2                 ; Verify: running checksum (including checksum byte) should be $00
-000A31r 2  AD 0D 03       lda HEX_CHKSUM
-000A34r 2  D0 3A          bne @HexLoadFail              ; Checksum error
-000A36r 2                 ; Advance HEX_PTR by byte count for tracking end position
-000A36r 2  A5 2A          lda HEX_PTR
-000A38r 2  18             clc
-000A39r 2  6D 0E 03       adc HEX_BYTECNT
-000A3Cr 2  85 2A          sta HEX_PTR
-000A3Er 2  90 02          bcc @HexLoadNoCarry
-000A40r 2  E6 2B          inc HEX_PTR + 1
-000A42r 2               @HexLoadNoCarry:
-000A42r 2                 ; Print '.' progress indicator
-000A42r 2  A9 2E          lda #'.'
-000A44r 2  20 rr rr       jsr SerialChrout
-000A47r 2  80 9D          bra @HexLoadRecord            ; Next record
-000A49r 2               @HexLoadEOF:
-000A49r 2                 ; EOF record — read and verify checksum
-000A49r 2  20 rr rr       jsr SerialReadHexByte
-000A4Cr 2  B0 22          bcs @HexLoadFail
-000A4Er 2  AD 0D 03       lda HEX_CHKSUM
-000A51r 2  D0 1D          bne @HexLoadFail              ; Checksum error on EOF
-000A53r 2                 ; Print success message
-000A53r 2  A9 0D          lda #$0D
-000A55r 2  20 rr rr       jsr SerialChrout
-000A58r 2  A9 0A          lda #$0A
-000A5Ar 2  20 rr rr       jsr SerialChrout
-000A5Dr 2  A9 rr          lda #<@HexOkMsg
-000A5Fr 2  85 02          sta STR_PTR
-000A61r 2  A9 rr          lda #>@HexOkMsg
-000A63r 2  85 03          sta STR_PTR + 1
-000A65r 2  20 rr rr       jsr @SerialPrintStr
-000A68r 2                 ; Restore IO_MODE
-000A68r 2  AD 19 03       lda HEX_IO_SAVE
-000A6Br 2  8D 06 03       sta IO_MODE
-000A6Er 2  18             clc                           ; Success
-000A6Fr 2  60             rts
-000A70r 2               @HexLoadFail:
-000A70r 2                 ; Print error message
-000A70r 2  A9 0D          lda #$0D
-000A72r 2  20 rr rr       jsr SerialChrout
-000A75r 2  A9 0A          lda #$0A
-000A77r 2  20 rr rr       jsr SerialChrout
-000A7Ar 2  A9 rr          lda #<@HexErrMsg
-000A7Cr 2  85 02          sta STR_PTR
-000A7Er 2  A9 rr          lda #>@HexErrMsg
-000A80r 2  85 03          sta STR_PTR + 1
-000A82r 2  20 rr rr       jsr @SerialPrintStr
-000A85r 2                 ; Restore IO_MODE
-000A85r 2  AD 19 03       lda HEX_IO_SAVE
-000A88r 2  8D 06 03       sta IO_MODE
-000A8Br 2  38             sec                           ; Error
-000A8Cr 2  60             rts
-000A8Dr 2               
-000A8Dr 2               ; Internal: print null-terminated string via serial
-000A8Dr 2               ; Input: STR_PTR points to string
-000A8Dr 2               @SerialPrintStr:
-000A8Dr 2  A0 00          ldy #$00
-000A8Fr 2               @SerialPrintLoop:
-000A8Fr 2  B1 02          lda (STR_PTR),y
-000A91r 2  F0 06          beq @SerialPrintDone
-000A93r 2  20 rr rr       jsr SerialChrout
-000A96r 2  C8             iny
-000A97r 2  D0 F6          bne @SerialPrintLoop
-000A99r 2               @SerialPrintDone:
-000A99r 2  60             rts
-000A9Ar 2               
-000A9Ar 2  52 45 41 44  @HexLoadMsg: .asciiz "READY TO RECEIVE"
-000A9Er 2  59 20 54 4F  
-000AA2r 2  20 52 45 43  
-000AABr 2  4F 4B 00     @HexOkMsg:   .asciiz "OK"
-000AAEr 2  45 52 52 4F  @HexErrMsg:  .asciiz "ERROR"
-000AB2r 2  52 00        
-000AB4r 2               
-000AB4r 2               ; --- Intel HEX Save ---
-000AB4r 2               
-000AB4r 2               ; HexSaveImpl — Transmit program memory as Intel HEX records via serial
-000AB4r 2               ; Generates 16-byte data records from PROGRAM_START ($0800) to BAS_PRGEND
-000AB4r 2               ; Ends with EOF record :00000001FF
-000AB4r 2               ; Output: Carry clear = success
-000AB4r 2               ; Modifies: Flags, A, X, Y
-000AB4r 2               HexSaveImpl:
-000AB4r 2                 ; Save and switch IO_MODE to serial
-000AB4r 2  AD 06 03       lda IO_MODE
-000AB7r 2  8D 19 03       sta HEX_IO_SAVE
-000ABAr 2  A9 01          lda #$01
-000ABCr 2  8D 06 03       sta IO_MODE
-000ABFr 2                 ; Print CRLF
-000ABFr 2  A9 0D          lda #$0D
-000AC1r 2  20 rr rr       jsr SerialChrout
-000AC4r 2  A9 0A          lda #$0A
-000AC6r 2  20 rr rr       jsr SerialChrout
-000AC9r 2                 ; Initialize save pointer
-000AC9r 2  A9 00          lda #<PROGRAM_START
-000ACBr 2  85 2A          sta HEX_PTR
-000ACDr 2  A9 08          lda #>PROGRAM_START
-000ACFr 2  85 2B          sta HEX_PTR + 1
-000AD1r 2                 ; Calculate remaining bytes = BAS_PRGEND - PROGRAM_START
-000AD1r 2  A5 12          lda z:BAS_PRGEND
-000AD3r 2  38             sec
-000AD4r 2  E9 00          sbc #<PROGRAM_START
-000AD6r 2  8D 17 03       sta HEX_REMAIN
-000AD9r 2  A5 13          lda z:BAS_PRGEND + 1
-000ADBr 2  E9 08          sbc #>PROGRAM_START
-000ADDr 2  8D 18 03       sta HEX_REMAIN + 1
-000AE0r 2                 ; Check for zero-length program
-000AE0r 2  0D 17 03       ora HEX_REMAIN
-000AE3r 2  D0 03          bne @HexSaveRecord
-000AE5r 2  4C rr rr       jmp @HexSaveEOF
-000AE8r 2               @HexSaveRecord:
-000AE8r 2                 ; Determine byte count for this record: min(16, HEX_REMAIN)
-000AE8r 2  AD 18 03       lda HEX_REMAIN + 1
-000AEBr 2  D0 07          bne @HexSave16                ; High byte > 0, at least 256 remaining
-000AEDr 2  AD 17 03       lda HEX_REMAIN
-000AF0r 2  C9 11          cmp #17
-000AF2r 2  90 04          bcc @HexSavePartial           ; Less than 17 bytes, use actual count
-000AF4r 2               @HexSave16:
-000AF4r 2  A9 10          lda #16
-000AF6r 2  80 03          bra @HexSaveEmit
-000AF8r 2               @HexSavePartial:
-000AF8r 2  AD 17 03       lda HEX_REMAIN                ; Use actual remaining count
-000AFBr 2               @HexSaveEmit:
-000AFBr 2  8D 0E 03       sta HEX_BYTECNT
-000AFEr 2                 ; Reset checksum
-000AFEr 2  9C 0D 03       stz HEX_CHKSUM
-000B01r 2                 ; Print start code
-000B01r 2  A9 3A          lda #':'
-000B03r 2  20 rr rr       jsr SerialChrout
-000B06r 2                 ; Print byte count
-000B06r 2  AD 0E 03       lda HEX_BYTECNT
-000B09r 2  18             clc
-000B0Ar 2  6D 0D 03       adc HEX_CHKSUM
-000B0Dr 2  8D 0D 03       sta HEX_CHKSUM
-000B10r 2  AD 0E 03       lda HEX_BYTECNT
-000B13r 2  20 rr rr       jsr SerialPrintHexByte
-000B16r 2                 ; Print address (high byte first)
-000B16r 2  A5 2B          lda HEX_PTR + 1
-000B18r 2  18             clc
-000B19r 2  6D 0D 03       adc HEX_CHKSUM
-000B1Cr 2  8D 0D 03       sta HEX_CHKSUM
-000B1Fr 2  A5 2B          lda HEX_PTR + 1
-000B21r 2  20 rr rr       jsr SerialPrintHexByte
-000B24r 2                 ; Address low byte
-000B24r 2  A5 2A          lda HEX_PTR
-000B26r 2  18             clc
-000B27r 2  6D 0D 03       adc HEX_CHKSUM
-000B2Ar 2  8D 0D 03       sta HEX_CHKSUM
-000B2Dr 2  A5 2A          lda HEX_PTR
-000B2Fr 2  20 rr rr       jsr SerialPrintHexByte
-000B32r 2                 ; Print record type 00 (data)
-000B32r 2  A9 00          lda #$00
-000B34r 2  20 rr rr       jsr SerialPrintHexByte        ; Prints "00", checksum unaffected (adding 0)
-000B37r 2                 ; Print data bytes
-000B37r 2  A0 00          ldy #$00
-000B39r 2               @HexSaveData:
-000B39r 2  CC 0E 03       cpy HEX_BYTECNT
-000B3Cr 2  F0 11          beq @HexSaveChksum
-000B3Er 2  B1 2A          lda (HEX_PTR),y
-000B40r 2  48             pha
-000B41r 2  18             clc
-000B42r 2  6D 0D 03       adc HEX_CHKSUM
-000B45r 2  8D 0D 03       sta HEX_CHKSUM
-000B48r 2  68             pla
-000B49r 2  20 rr rr       jsr SerialPrintHexByte
-000B4Cr 2  C8             iny
-000B4Dr 2  80 EA          bra @HexSaveData
-000B4Fr 2               @HexSaveChksum:
-000B4Fr 2                 ; Print checksum = two's complement of running sum
-000B4Fr 2  AD 0D 03       lda HEX_CHKSUM
-000B52r 2  49 FF          eor #$FF
-000B54r 2  18             clc
-000B55r 2  69 01          adc #$01                      ; Two's complement
-000B57r 2  20 rr rr       jsr SerialPrintHexByte
-000B5Ar 2                 ; Print CRLF after record
-000B5Ar 2  A9 0D          lda #$0D
-000B5Cr 2  20 rr rr       jsr SerialChrout
-000B5Fr 2  A9 0A          lda #$0A
-000B61r 2  20 rr rr       jsr SerialChrout
-000B64r 2                 ; Advance save pointer
-000B64r 2  A5 2A          lda HEX_PTR
-000B66r 2  18             clc
-000B67r 2  6D 0E 03       adc HEX_BYTECNT
-000B6Ar 2  85 2A          sta HEX_PTR
-000B6Cr 2  90 02          bcc @HexSaveNoCarry
-000B6Er 2  E6 2B          inc HEX_PTR + 1
-000B70r 2               @HexSaveNoCarry:
-000B70r 2                 ; Subtract from remaining
-000B70r 2  AD 17 03       lda HEX_REMAIN
-000B73r 2  38             sec
-000B74r 2  ED 0E 03       sbc HEX_BYTECNT
-000B77r 2  8D 17 03       sta HEX_REMAIN
-000B7Ar 2  B0 03          bcs @HexSaveNoBorrow
-000B7Cr 2  CE 18 03       dec HEX_REMAIN + 1
-000B7Fr 2               @HexSaveNoBorrow:
-000B7Fr 2                 ; Check if done
-000B7Fr 2  AD 17 03       lda HEX_REMAIN
-000B82r 2  0D 18 03       ora HEX_REMAIN + 1
-000B85r 2  F0 03          beq @HexSaveDone
-000B87r 2  4C rr rr       jmp @HexSaveRecord            ; More bytes to send
-000B8Ar 2               @HexSaveDone:
-000B8Ar 2               @HexSaveEOF:
-000B8Ar 2                 ; Send EOF record :00000001FF
-000B8Ar 2  A9 3A          lda #':'
-000B8Cr 2  20 rr rr       jsr SerialChrout
-000B8Fr 2  A9 00          lda #$00
-000B91r 2  20 rr rr       jsr SerialPrintHexByte        ; Byte count = 0
-000B94r 2  A9 00          lda #$00
-000B96r 2  20 rr rr       jsr SerialPrintHexByte        ; Address high = 0
-000B99r 2  A9 00          lda #$00
-000B9Br 2  20 rr rr       jsr SerialPrintHexByte        ; Address low = 0
-000B9Er 2  A9 01          lda #$01
-000BA0r 2  20 rr rr       jsr SerialPrintHexByte        ; Type = 01 (EOF)
-000BA3r 2  A9 FF          lda #$FF
-000BA5r 2  20 rr rr       jsr SerialPrintHexByte        ; Checksum = FF
-000BA8r 2  A9 0D          lda #$0D
-000BAAr 2  20 rr rr       jsr SerialChrout
-000BADr 2  A9 0A          lda #$0A
-000BAFr 2  20 rr rr       jsr SerialChrout
-000BB2r 2                 ; Restore IO_MODE
-000BB2r 2  AD 19 03       lda HEX_IO_SAVE
-000BB5r 2  8D 06 03       sta IO_MODE
-000BB8r 2  18             clc                           ; Success
-000BB9r 2  60             rts
-000BBAr 2               
-000BBAr 2               ; Draw the splash screen
-000BBAr 2               ; Uses video output to display centered title and boot menu
-000BBAr 2               ; Modifies: Flags, A, X, Y
-000BBAr 2               Splash:
-000BBAr 2  20 rr rr       jsr VideoClear                ; Clear the video screen
-000BBDr 2                 ; Position cursor at row 10, col 10 for title
-000BBDr 2  A2 0A          ldx #10
-000BBFr 2  A0 0A          ldy #10
-000BC1r 2  20 rr rr       jsr VideoSetCursor
-000BC4r 2  A9 rr          lda #<@SplashTitle
-000BC6r 2  85 02          sta STR_PTR
-000BC8r 2  A9 rr          lda #>@SplashTitle
-000BCAr 2  85 03          sta STR_PTR + 1
-000BCCr 2  20 rr rr       jsr VideoPrintStrImpl
-000BCFr 2                 ; Position cursor at row 12, col 8 for boot menu (centered: (40-24)/2 = 8)
-000BCFr 2  A2 08          ldx #8
-000BD1r 2  A0 0C          ldy #12
-000BD3r 2  20 rr rr       jsr VideoSetCursor
-000BD6r 2  A9 rr          lda #<@SplashMenu
-000BD8r 2  85 02          sta STR_PTR
-000BDAr 2  A9 rr          lda #>@SplashMenu
-000BDCr 2  85 03          sta STR_PTR + 1
-000BDEr 2  20 rr rr       jsr VideoPrintStrImpl
-000BE1r 2  60             rts
-000BE2r 2  2D 2D 20 54  @SplashTitle: .asciiz "-- The 'COB' v1.0 --"
-000BE6r 2  68 65 20 27  
-000BEAr 2  43 4F 42 27  
-000BF7r 2  45 4E 54 45  @SplashMenu:  .asciiz "ENTER=BASIC  ESC=MONITOR"
-000BFBr 2  52 3D 42 41  
-000BFFr 2  53 49 43 20  
-000C10r 2               
-000C10r 2               ; NMI Handler
-000C10r 2               Nmi:
-000C10r 2  40             rti
-000C11r 2               
-000C11r 2               ; BRK Handler — default dispatches to WozMon
-000C11r 2               ; On entry the stack holds the processor-pushed state from the BRK:
-000C11r 2               ;   SP+1 = saved P, SP+2 = PCL (PC+2), SP+3 = PCH
-000C11r 2               ; State is saved to BRK_P/BRK_PCL/BRK_PCH for inspection by a custom handler.
-000C11r 2               Break:
-000C11r 2  68             pla                           ; Pull saved P
-000C12r 2  8D 10 03       sta BRK_P
-000C15r 2  68             pla                           ; Pull saved PCL (PC+2)
-000C16r 2  8D 11 03       sta BRK_PCL
-000C19r 2  68             pla                           ; Pull saved PCH
-000C1Ar 2  8D 12 03       sta BRK_PCH
-000C1Dr 2  4C rr rr       jmp MonitorEntry
-000C20r 2               
-000C20r 2               ; IRQ Handler
-000C20r 2               Irq:
-000C20r 2  48             pha
-000C21r 2  5A             phy
-000C22r 2  DA             phx
-000C23r 2  BA             tsx                           ; Get stack pointer to check saved status register
-000C24r 2  BD 04 01       lda $104,x                    ; Load saved P (SP+4: past X, Y, A we pushed)
-000C27r 2  29 10          and #$10                      ; Test B flag — set by BRK, clear by hardware IRQ
-000C29r 2  D0 3B          bne @IrqBrk                   ; Branch if this was a BRK instruction
-000C2Br 2               @IrqSc:
-000C2Br 2  AD 01 90       lda SC_STATUS
-000C2Er 2  29 80          and #SC_STATUS_IRQ            ; Check if serial data caused the interrupt
-000C30r 2  F0 14          beq @IrqCheckKB               ; If not, check keyboard
-000C32r 2  AD 00 90       lda SC_DATA                   ; Read the data from serial register
-000C35r 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
-000C38r 2  20 rr rr       jsr BufferSize
-000C3Br 2  C9 F0          cmp #$F0                      ; Is the buffer almost full?
-000C3Dr 2  90 23          bcc @IrqExit                  ; If not, exit
-000C3Fr 2  A9 01          lda #$01                      ; No parity, no echo, RTSB high, TX interrupts disabled, RX interrupts enabled
-000C41r 2  8D 02 90       sta SC_CMD                    ; Otherwise, signal not ready for receiving (RTSB high)
-000C44r 2  80 1C          bra @IrqExit
-000C46r 2               @IrqCheckKB:
-000C46r 2  AD 0D 94       lda GPIO_IFR
-000C49r 2  29 10          and #GPIO_INT_CB1             ; Check if CB1 (matrix keyboard data ready) caused the interrupt
-000C4Br 2  F0 08          beq @IrqCheckPS2              ; If not, check PS/2 keyboard
-000C4Dr 2  AD 00 94       lda GPIO_PORTB                ; Read ASCII byte from matrix keyboard (also clears CB1 IFR flag)
-000C50r 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
-000C53r 2  80 0D          bra @IrqExit
-000C55r 2               @IrqCheckPS2:
-000C55r 2  AD 0D 94       lda GPIO_IFR
-000C58r 2  29 02          and #GPIO_INT_CA1             ; Check if CA1 (PS/2 keyboard data ready) caused the interrupt
-000C5Ar 2  F0 06          beq @IrqExit                  ; If not, exit
-000C5Cr 2  AD 01 94       lda GPIO_PORTA                ; Read ASCII byte from PS/2 keyboard (also clears CA1 IFR flag)
-000C5Fr 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
-000C62r 2               @IrqExit:
-000C62r 2  FA             plx
-000C63r 2  7A             ply
-000C64r 2  68             pla
-000C65r 2  40             rti
-000C66r 2               @IrqBrk:
-000C66r 2  FA             plx                           ; Restore saved registers
-000C67r 2  7A             ply
-000C68r 2  68             pla
-000C69r 2  58             cli                           ; Re-enable interrupts — abandoning interrupt context
-000C6Ar 2  6C 02 03       jmp (BRK_PTR)                 ; BRK — dispatch with P/PCL/PCH still on stack
-000C6Dr 2               
-000C6Dr 2               ; NMI Vector
-000C6Dr 2               NmiVec:
-000C6Dr 2  6C 04 03       jmp (NMI_PTR)                 ; Indirect jump through NMI pointer to the NMI handler
-000C70r 2               
-000C70r 2               ; Reset Vector
-000C70r 2               ResetVec:
-000C70r 2  4C rr rr       jmp Reset                     ; Initialize the system
-000C73r 2               
-000C73r 2               ; IRQ Vector
-000C73r 2               IrqVec:
-000C73r 2  6C 00 03       jmp (IRQ_PTR)                 ; Indirect jump through IRQ pointer to the IRQ handler
-000C76r 2               
-000C76r 1               .segment "CHARS"
+00098Dr 2  4A             lsr a                         ; Shift high nibble down
+00098Er 2  4A             lsr a
+00098Fr 2  4A             lsr a
+000990r 2  4A             lsr a
+000991r 2  20 rr rr       jsr NibbleToHex
+000994r 2  20 rr rr       jsr SerialChrout              ; Print high nibble
+000997r 2  68             pla
+000998r 2  48             pha
+000999r 2  20 rr rr       jsr NibbleToHex               ; Low nibble (and #$0F inside NibbleToHex)
+00099Cr 2  20 rr rr       jsr SerialChrout              ; Print low nibble
+00099Fr 2  68             pla
+0009A0r 2  60             rts
+0009A1r 2               
+0009A1r 2               ; SerialReadHexByte — Read 2 hex ASCII chars from serial, return byte
+0009A1r 2               ; Blocks until 2 valid hex chars received
+0009A1r 2               ; Output: A = byte value, Carry clear = success, Carry set = invalid char
+0009A1r 2               ; Also adds result to HEX_CHKSUM
+0009A1r 2               ; Modifies: Flags, A
+0009A1r 2               SerialReadHexByte:
+0009A1r 2                 ; Wait for first hex char (high nibble)
+0009A1r 2               @SrHexWait1:
+0009A1r 2  20 rr rr       jsr BufferSize
+0009A4r 2  F0 FB          beq @SrHexWait1
+0009A6r 2  20 rr rr       jsr ReadBuffer
+0009A9r 2  20 rr rr       jsr HexToNibble
+0009ACr 2  B0 22          bcs @SrHexErr                 ; Invalid hex char
+0009AEr 2  0A             asl a                         ; Shift to high nibble
+0009AFr 2  0A             asl a
+0009B0r 2  0A             asl a
+0009B1r 2  0A             asl a
+0009B2r 2  8D 0F 03       sta HEX_RECTYPE               ; Temp storage for high nibble (reuse HEX_RECTYPE briefly)
+0009B5r 2                 ; Wait for second hex char (low nibble)
+0009B5r 2               @SrHexWait2:
+0009B5r 2  20 rr rr       jsr BufferSize
+0009B8r 2  F0 FB          beq @SrHexWait2
+0009BAr 2  20 rr rr       jsr ReadBuffer
+0009BDr 2  20 rr rr       jsr HexToNibble
+0009C0r 2  B0 0E          bcs @SrHexErr
+0009C2r 2  0D 0F 03       ora HEX_RECTYPE               ; Combine high and low nibbles
+0009C5r 2                 ; Add to running checksum
+0009C5r 2  48             pha
+0009C6r 2  18             clc
+0009C7r 2  6D 0D 03       adc HEX_CHKSUM
+0009CAr 2  8D 0D 03       sta HEX_CHKSUM
+0009CDr 2  68             pla
+0009CEr 2  18             clc                           ; Success
+0009CFr 2  60             rts
+0009D0r 2               @SrHexErr:
+0009D0r 2  38             sec
+0009D1r 2  60             rts
+0009D2r 2               
+0009D2r 2               ; --- Intel HEX Load ---
+0009D2r 2               
+0009D2r 2               ; HexLoadImpl — Receive Intel HEX records via serial and write to memory
+0009D2r 2               ; Switches IO_MODE to serial, parses records, validates checksums
+0009D2r 2               ; On data records (type $00): writes bytes to addresses specified in records
+0009D2r 2               ; On EOF record (type $01): finishes loading
+0009D2r 2               ; Output: Carry clear = success, Carry set = error (checksum fail or parse error)
+0009D2r 2               ;         On success, HEX_ADDR contains the last address written + 1
+0009D2r 2               ; Modifies: Flags, A, X, Y
+0009D2r 2               HexLoadImpl:
+0009D2r 2                 ; Save and switch IO_MODE to serial
+0009D2r 2  AD 06 03       lda IO_MODE
+0009D5r 2  8D 19 03       sta HEX_IO_SAVE
+0009D8r 2  A9 01          lda #$01                      ; Serial mode
+0009DAr 2  8D 06 03       sta IO_MODE
+0009DDr 2                 ; Print prompt
+0009DDr 2  A9 0D          lda #$0D
+0009DFr 2  20 rr rr       jsr SerialChrout
+0009E2r 2  A9 0A          lda #$0A
+0009E4r 2  20 rr rr       jsr SerialChrout
+0009E7r 2  A9 rr          lda #<@HexLoadMsg
+0009E9r 2  85 02          sta STR_PTR
+0009EBr 2  A9 rr          lda #>@HexLoadMsg
+0009EDr 2  85 03          sta STR_PTR + 1
+0009EFr 2  20 rr rr       jsr @SerialPrintStr
+0009F2r 2               
+0009F2r 2               @HexLoadRecord:
+0009F2r 2                 ; Wait for start code ':'
+0009F2r 2               @HexWaitColon:
+0009F2r 2  20 rr rr       jsr BufferSize
+0009F5r 2  F0 FB          beq @HexWaitColon
+0009F7r 2  20 rr rr       jsr ReadBuffer
+0009FAr 2  C9 3A          cmp #':'
+0009FCr 2  D0 F4          bne @HexWaitColon             ; Ignore chars until ':'
+0009FEr 2                 ; Reset checksum
+0009FEr 2  9C 0D 03       stz HEX_CHKSUM
+000A01r 2                 ; Read byte count (LL)
+000A01r 2  20 rr rr       jsr SerialReadHexByte
+000A04r 2  B0 76          bcs @HexLoadFail
+000A06r 2  8D 0E 03       sta HEX_BYTECNT
+000A09r 2                 ; Read address high byte (AA)
+000A09r 2  20 rr rr       jsr SerialReadHexByte
+000A0Cr 2  B0 6E          bcs @HexLoadFail
+000A0Er 2  85 2B          sta HEX_PTR + 1
+000A10r 2                 ; Read address low byte (AA)
+000A10r 2  20 rr rr       jsr SerialReadHexByte
+000A13r 2  B0 67          bcs @HexLoadFail
+000A15r 2  85 2A          sta HEX_PTR
+000A17r 2                 ; Read record type (TT)
+000A17r 2  20 rr rr       jsr SerialReadHexByte
+000A1Ar 2  B0 60          bcs @HexLoadFail
+000A1Cr 2  8D 0F 03       sta HEX_RECTYPE
+000A1Fr 2                 ; Check record type
+000A1Fr 2  C9 01          cmp #$01                      ; EOF record?
+000A21r 2  F0 32          beq @HexLoadEOF
+000A23r 2  C9 00          cmp #$00                      ; Data record?
+000A25r 2  D0 55          bne @HexLoadFail              ; Unknown record type — error
+000A27r 2                 ; Data record — read data bytes
+000A27r 2  A0 00          ldy #$00
+000A29r 2               @HexLoadData:
+000A29r 2  CC 0E 03       cpy HEX_BYTECNT
+000A2Cr 2  F0 0A          beq @HexLoadChecksum          ; All data bytes read
+000A2Er 2  20 rr rr       jsr SerialReadHexByte
+000A31r 2  B0 49          bcs @HexLoadFail
+000A33r 2  91 2A          sta (HEX_PTR),y               ; Write byte to target address
+000A35r 2  C8             iny
+000A36r 2  80 F1          bra @HexLoadData
+000A38r 2               @HexLoadChecksum:
+000A38r 2                 ; Read checksum byte
+000A38r 2  20 rr rr       jsr SerialReadHexByte
+000A3Br 2  B0 3F          bcs @HexLoadFail
+000A3Dr 2                 ; Verify: running checksum (including checksum byte) should be $00
+000A3Dr 2  AD 0D 03       lda HEX_CHKSUM
+000A40r 2  D0 3A          bne @HexLoadFail              ; Checksum error
+000A42r 2                 ; Advance HEX_PTR by byte count for tracking end position
+000A42r 2  A5 2A          lda HEX_PTR
+000A44r 2  18             clc
+000A45r 2  6D 0E 03       adc HEX_BYTECNT
+000A48r 2  85 2A          sta HEX_PTR
+000A4Ar 2  90 02          bcc @HexLoadNoCarry
+000A4Cr 2  E6 2B          inc HEX_PTR + 1
+000A4Er 2               @HexLoadNoCarry:
+000A4Er 2                 ; Print '.' progress indicator
+000A4Er 2  A9 2E          lda #'.'
+000A50r 2  20 rr rr       jsr SerialChrout
+000A53r 2  80 9D          bra @HexLoadRecord            ; Next record
+000A55r 2               @HexLoadEOF:
+000A55r 2                 ; EOF record — read and verify checksum
+000A55r 2  20 rr rr       jsr SerialReadHexByte
+000A58r 2  B0 22          bcs @HexLoadFail
+000A5Ar 2  AD 0D 03       lda HEX_CHKSUM
+000A5Dr 2  D0 1D          bne @HexLoadFail              ; Checksum error on EOF
+000A5Fr 2                 ; Print success message
+000A5Fr 2  A9 0D          lda #$0D
+000A61r 2  20 rr rr       jsr SerialChrout
+000A64r 2  A9 0A          lda #$0A
+000A66r 2  20 rr rr       jsr SerialChrout
+000A69r 2  A9 rr          lda #<@HexOkMsg
+000A6Br 2  85 02          sta STR_PTR
+000A6Dr 2  A9 rr          lda #>@HexOkMsg
+000A6Fr 2  85 03          sta STR_PTR + 1
+000A71r 2  20 rr rr       jsr @SerialPrintStr
+000A74r 2                 ; Restore IO_MODE
+000A74r 2  AD 19 03       lda HEX_IO_SAVE
+000A77r 2  8D 06 03       sta IO_MODE
+000A7Ar 2  18             clc                           ; Success
+000A7Br 2  60             rts
+000A7Cr 2               @HexLoadFail:
+000A7Cr 2                 ; Print error message
+000A7Cr 2  A9 0D          lda #$0D
+000A7Er 2  20 rr rr       jsr SerialChrout
+000A81r 2  A9 0A          lda #$0A
+000A83r 2  20 rr rr       jsr SerialChrout
+000A86r 2  A9 rr          lda #<@HexErrMsg
+000A88r 2  85 02          sta STR_PTR
+000A8Ar 2  A9 rr          lda #>@HexErrMsg
+000A8Cr 2  85 03          sta STR_PTR + 1
+000A8Er 2  20 rr rr       jsr @SerialPrintStr
+000A91r 2                 ; Restore IO_MODE
+000A91r 2  AD 19 03       lda HEX_IO_SAVE
+000A94r 2  8D 06 03       sta IO_MODE
+000A97r 2  38             sec                           ; Error
+000A98r 2  60             rts
+000A99r 2               
+000A99r 2               ; Internal: print null-terminated string via serial
+000A99r 2               ; Input: STR_PTR points to string
+000A99r 2               @SerialPrintStr:
+000A99r 2  A0 00          ldy #$00
+000A9Br 2               @SerialPrintLoop:
+000A9Br 2  B1 02          lda (STR_PTR),y
+000A9Dr 2  F0 06          beq @SerialPrintDone
+000A9Fr 2  20 rr rr       jsr SerialChrout
+000AA2r 2  C8             iny
+000AA3r 2  D0 F6          bne @SerialPrintLoop
+000AA5r 2               @SerialPrintDone:
+000AA5r 2  60             rts
+000AA6r 2               
+000AA6r 2  52 45 41 44  @HexLoadMsg: .asciiz "READY TO RECEIVE"
+000AAAr 2  59 20 54 4F  
+000AAEr 2  20 52 45 43  
+000AB7r 2  4F 4B 00     @HexOkMsg:   .asciiz "OK"
+000ABAr 2  45 52 52 4F  @HexErrMsg:  .asciiz "ERROR"
+000ABEr 2  52 00        
+000AC0r 2               
+000AC0r 2               ; --- Intel HEX Save ---
+000AC0r 2               
+000AC0r 2               ; HexSaveImpl — Transmit program memory as Intel HEX records via serial
+000AC0r 2               ; Generates 16-byte data records from PROGRAM_START ($0800) to BAS_PRGEND
+000AC0r 2               ; Ends with EOF record :00000001FF
+000AC0r 2               ; Output: Carry clear = success
+000AC0r 2               ; Modifies: Flags, A, X, Y
+000AC0r 2               HexSaveImpl:
+000AC0r 2                 ; Save and switch IO_MODE to serial
+000AC0r 2  AD 06 03       lda IO_MODE
+000AC3r 2  8D 19 03       sta HEX_IO_SAVE
+000AC6r 2  A9 01          lda #$01
+000AC8r 2  8D 06 03       sta IO_MODE
+000ACBr 2                 ; Print CRLF
+000ACBr 2  A9 0D          lda #$0D
+000ACDr 2  20 rr rr       jsr SerialChrout
+000AD0r 2  A9 0A          lda #$0A
+000AD2r 2  20 rr rr       jsr SerialChrout
+000AD5r 2                 ; Initialize save pointer
+000AD5r 2  A9 00          lda #<PROGRAM_START
+000AD7r 2  85 2A          sta HEX_PTR
+000AD9r 2  A9 08          lda #>PROGRAM_START
+000ADBr 2  85 2B          sta HEX_PTR + 1
+000ADDr 2                 ; Calculate remaining bytes = BAS_PRGEND - PROGRAM_START
+000ADDr 2  A5 12          lda z:BAS_PRGEND
+000ADFr 2  38             sec
+000AE0r 2  E9 00          sbc #<PROGRAM_START
+000AE2r 2  8D 17 03       sta HEX_REMAIN
+000AE5r 2  A5 13          lda z:BAS_PRGEND + 1
+000AE7r 2  E9 08          sbc #>PROGRAM_START
+000AE9r 2  8D 18 03       sta HEX_REMAIN + 1
+000AECr 2                 ; Check for zero-length program
+000AECr 2  0D 17 03       ora HEX_REMAIN
+000AEFr 2  D0 03          bne @HexSaveRecord
+000AF1r 2  4C rr rr       jmp @HexSaveEOF
+000AF4r 2               @HexSaveRecord:
+000AF4r 2                 ; Determine byte count for this record: min(16, HEX_REMAIN)
+000AF4r 2  AD 18 03       lda HEX_REMAIN + 1
+000AF7r 2  D0 07          bne @HexSave16                ; High byte > 0, at least 256 remaining
+000AF9r 2  AD 17 03       lda HEX_REMAIN
+000AFCr 2  C9 11          cmp #17
+000AFEr 2  90 04          bcc @HexSavePartial           ; Less than 17 bytes, use actual count
+000B00r 2               @HexSave16:
+000B00r 2  A9 10          lda #16
+000B02r 2  80 03          bra @HexSaveEmit
+000B04r 2               @HexSavePartial:
+000B04r 2  AD 17 03       lda HEX_REMAIN                ; Use actual remaining count
+000B07r 2               @HexSaveEmit:
+000B07r 2  8D 0E 03       sta HEX_BYTECNT
+000B0Ar 2                 ; Reset checksum
+000B0Ar 2  9C 0D 03       stz HEX_CHKSUM
+000B0Dr 2                 ; Print start code
+000B0Dr 2  A9 3A          lda #':'
+000B0Fr 2  20 rr rr       jsr SerialChrout
+000B12r 2                 ; Print byte count
+000B12r 2  AD 0E 03       lda HEX_BYTECNT
+000B15r 2  18             clc
+000B16r 2  6D 0D 03       adc HEX_CHKSUM
+000B19r 2  8D 0D 03       sta HEX_CHKSUM
+000B1Cr 2  AD 0E 03       lda HEX_BYTECNT
+000B1Fr 2  20 rr rr       jsr SerialPrintHexByte
+000B22r 2                 ; Print address (high byte first)
+000B22r 2  A5 2B          lda HEX_PTR + 1
+000B24r 2  18             clc
+000B25r 2  6D 0D 03       adc HEX_CHKSUM
+000B28r 2  8D 0D 03       sta HEX_CHKSUM
+000B2Br 2  A5 2B          lda HEX_PTR + 1
+000B2Dr 2  20 rr rr       jsr SerialPrintHexByte
+000B30r 2                 ; Address low byte
+000B30r 2  A5 2A          lda HEX_PTR
+000B32r 2  18             clc
+000B33r 2  6D 0D 03       adc HEX_CHKSUM
+000B36r 2  8D 0D 03       sta HEX_CHKSUM
+000B39r 2  A5 2A          lda HEX_PTR
+000B3Br 2  20 rr rr       jsr SerialPrintHexByte
+000B3Er 2                 ; Print record type 00 (data)
+000B3Er 2  A9 00          lda #$00
+000B40r 2  20 rr rr       jsr SerialPrintHexByte        ; Prints "00", checksum unaffected (adding 0)
+000B43r 2                 ; Print data bytes
+000B43r 2  A0 00          ldy #$00
+000B45r 2               @HexSaveData:
+000B45r 2  CC 0E 03       cpy HEX_BYTECNT
+000B48r 2  F0 11          beq @HexSaveChksum
+000B4Ar 2  B1 2A          lda (HEX_PTR),y
+000B4Cr 2  48             pha
+000B4Dr 2  18             clc
+000B4Er 2  6D 0D 03       adc HEX_CHKSUM
+000B51r 2  8D 0D 03       sta HEX_CHKSUM
+000B54r 2  68             pla
+000B55r 2  20 rr rr       jsr SerialPrintHexByte
+000B58r 2  C8             iny
+000B59r 2  80 EA          bra @HexSaveData
+000B5Br 2               @HexSaveChksum:
+000B5Br 2                 ; Print checksum = two's complement of running sum
+000B5Br 2  AD 0D 03       lda HEX_CHKSUM
+000B5Er 2  49 FF          eor #$FF
+000B60r 2  18             clc
+000B61r 2  69 01          adc #$01                      ; Two's complement
+000B63r 2  20 rr rr       jsr SerialPrintHexByte
+000B66r 2                 ; Print CRLF after record
+000B66r 2  A9 0D          lda #$0D
+000B68r 2  20 rr rr       jsr SerialChrout
+000B6Br 2  A9 0A          lda #$0A
+000B6Dr 2  20 rr rr       jsr SerialChrout
+000B70r 2                 ; Advance save pointer
+000B70r 2  A5 2A          lda HEX_PTR
+000B72r 2  18             clc
+000B73r 2  6D 0E 03       adc HEX_BYTECNT
+000B76r 2  85 2A          sta HEX_PTR
+000B78r 2  90 02          bcc @HexSaveNoCarry
+000B7Ar 2  E6 2B          inc HEX_PTR + 1
+000B7Cr 2               @HexSaveNoCarry:
+000B7Cr 2                 ; Subtract from remaining
+000B7Cr 2  AD 17 03       lda HEX_REMAIN
+000B7Fr 2  38             sec
+000B80r 2  ED 0E 03       sbc HEX_BYTECNT
+000B83r 2  8D 17 03       sta HEX_REMAIN
+000B86r 2  B0 03          bcs @HexSaveNoBorrow
+000B88r 2  CE 18 03       dec HEX_REMAIN + 1
+000B8Br 2               @HexSaveNoBorrow:
+000B8Br 2                 ; Check if done
+000B8Br 2  AD 17 03       lda HEX_REMAIN
+000B8Er 2  0D 18 03       ora HEX_REMAIN + 1
+000B91r 2  F0 03          beq @HexSaveDone
+000B93r 2  4C rr rr       jmp @HexSaveRecord            ; More bytes to send
+000B96r 2               @HexSaveDone:
+000B96r 2               @HexSaveEOF:
+000B96r 2                 ; Send EOF record :00000001FF
+000B96r 2  A9 3A          lda #':'
+000B98r 2  20 rr rr       jsr SerialChrout
+000B9Br 2  A9 00          lda #$00
+000B9Dr 2  20 rr rr       jsr SerialPrintHexByte        ; Byte count = 0
+000BA0r 2  A9 00          lda #$00
+000BA2r 2  20 rr rr       jsr SerialPrintHexByte        ; Address high = 0
+000BA5r 2  A9 00          lda #$00
+000BA7r 2  20 rr rr       jsr SerialPrintHexByte        ; Address low = 0
+000BAAr 2  A9 01          lda #$01
+000BACr 2  20 rr rr       jsr SerialPrintHexByte        ; Type = 01 (EOF)
+000BAFr 2  A9 FF          lda #$FF
+000BB1r 2  20 rr rr       jsr SerialPrintHexByte        ; Checksum = FF
+000BB4r 2  A9 0D          lda #$0D
+000BB6r 2  20 rr rr       jsr SerialChrout
+000BB9r 2  A9 0A          lda #$0A
+000BBBr 2  20 rr rr       jsr SerialChrout
+000BBEr 2                 ; Restore IO_MODE
+000BBEr 2  AD 19 03       lda HEX_IO_SAVE
+000BC1r 2  8D 06 03       sta IO_MODE
+000BC4r 2  18             clc                           ; Success
+000BC5r 2  60             rts
+000BC6r 2               
+000BC6r 2               ; Draw the splash screen
+000BC6r 2               ; Uses video output to display centered title and boot menu
+000BC6r 2               ; Modifies: Flags, A, X, Y
+000BC6r 2               Splash:
+000BC6r 2  20 rr rr       jsr VideoClear                ; Clear the video screen
+000BC9r 2                 ; Position cursor at row 10, col 10 for title
+000BC9r 2  A2 0A          ldx #10
+000BCBr 2  A0 0A          ldy #10
+000BCDr 2  20 rr rr       jsr VideoSetCursor
+000BD0r 2  A9 rr          lda #<@SplashTitle
+000BD2r 2  85 02          sta STR_PTR
+000BD4r 2  A9 rr          lda #>@SplashTitle
+000BD6r 2  85 03          sta STR_PTR + 1
+000BD8r 2  20 rr rr       jsr VideoPrintStrImpl
+000BDBr 2                 ; Position cursor at row 12, col 8 for boot menu (centered: (40-24)/2 = 8)
+000BDBr 2  A2 08          ldx #8
+000BDDr 2  A0 0C          ldy #12
+000BDFr 2  20 rr rr       jsr VideoSetCursor
+000BE2r 2  A9 rr          lda #<@SplashMenu
+000BE4r 2  85 02          sta STR_PTR
+000BE6r 2  A9 rr          lda #>@SplashMenu
+000BE8r 2  85 03          sta STR_PTR + 1
+000BEAr 2  20 rr rr       jsr VideoPrintStrImpl
+000BEDr 2  60             rts
+000BEEr 2  2D 2D 20 54  @SplashTitle: .asciiz "-- The 'COB' v1.0 --"
+000BF2r 2  68 65 20 27  
+000BF6r 2  43 4F 42 27  
+000C03r 2  45 4E 54 45  @SplashMenu:  .asciiz "ENTER=BASIC  ESC=MONITOR"
+000C07r 2  52 3D 42 41  
+000C0Br 2  53 49 43 20  
+000C1Cr 2               
+000C1Cr 2               ; NMI Handler
+000C1Cr 2               Nmi:
+000C1Cr 2  40             rti
+000C1Dr 2               
+000C1Dr 2               ; BRK Handler — default dispatches to WozMon
+000C1Dr 2               ; On entry the stack holds the processor-pushed state from the BRK:
+000C1Dr 2               ;   SP+1 = saved P, SP+2 = PCL (PC+2), SP+3 = PCH
+000C1Dr 2               ; State is saved to BRK_P/BRK_PCL/BRK_PCH for inspection by a custom handler.
+000C1Dr 2               Break:
+000C1Dr 2  68             pla                           ; Pull saved P
+000C1Er 2  8D 10 03       sta BRK_P
+000C21r 2  68             pla                           ; Pull saved PCL (PC+2)
+000C22r 2  8D 11 03       sta BRK_PCL
+000C25r 2  68             pla                           ; Pull saved PCH
+000C26r 2  8D 12 03       sta BRK_PCH
+000C29r 2  4C rr rr       jmp MonitorEntry
+000C2Cr 2               
+000C2Cr 2               ; IRQ Handler
+000C2Cr 2               Irq:
+000C2Cr 2  48             pha
+000C2Dr 2  5A             phy
+000C2Er 2  DA             phx
+000C2Fr 2  BA             tsx                           ; Get stack pointer to check saved status register
+000C30r 2  BD 04 01       lda $104,x                    ; Load saved P (SP+4: past X, Y, A we pushed)
+000C33r 2  29 10          and #$10                      ; Test B flag — set by BRK, clear by hardware IRQ
+000C35r 2  D0 3B          bne @IrqBrk                   ; Branch if this was a BRK instruction
+000C37r 2               @IrqSc:
+000C37r 2  AD 01 90       lda SC_STATUS
+000C3Ar 2  29 80          and #SC_STATUS_IRQ            ; Check if serial data caused the interrupt
+000C3Cr 2  F0 14          beq @IrqCheckKB               ; If not, check keyboard
+000C3Er 2  AD 00 90       lda SC_DATA                   ; Read the data from serial register
+000C41r 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
+000C44r 2  20 rr rr       jsr BufferSize
+000C47r 2  C9 F0          cmp #$F0                      ; Is the buffer almost full?
+000C49r 2  90 23          bcc @IrqExit                  ; If not, exit
+000C4Br 2  A9 01          lda #$01                      ; No parity, no echo, RTSB high, TX interrupts disabled, RX interrupts enabled
+000C4Dr 2  8D 02 90       sta SC_CMD                    ; Otherwise, signal not ready for receiving (RTSB high)
+000C50r 2  80 1C          bra @IrqExit
+000C52r 2               @IrqCheckKB:
+000C52r 2  AD 0D 94       lda GPIO_IFR
+000C55r 2  29 10          and #GPIO_INT_CB1             ; Check if CB1 (matrix keyboard data ready) caused the interrupt
+000C57r 2  F0 08          beq @IrqCheckPS2              ; If not, check PS/2 keyboard
+000C59r 2  AD 00 94       lda GPIO_PORTB                ; Read ASCII byte from matrix keyboard (also clears CB1 IFR flag)
+000C5Cr 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
+000C5Fr 2  80 0D          bra @IrqExit
+000C61r 2               @IrqCheckPS2:
+000C61r 2  AD 0D 94       lda GPIO_IFR
+000C64r 2  29 02          and #GPIO_INT_CA1             ; Check if CA1 (PS/2 keyboard data ready) caused the interrupt
+000C66r 2  F0 06          beq @IrqExit                  ; If not, exit
+000C68r 2  AD 01 94       lda GPIO_PORTA                ; Read ASCII byte from PS/2 keyboard (also clears CA1 IFR flag)
+000C6Br 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
+000C6Er 2               @IrqExit:
+000C6Er 2  FA             plx
+000C6Fr 2  7A             ply
+000C70r 2  68             pla
+000C71r 2  40             rti
+000C72r 2               @IrqBrk:
+000C72r 2  FA             plx                           ; Restore saved registers
+000C73r 2  7A             ply
+000C74r 2  68             pla
+000C75r 2  58             cli                           ; Re-enable interrupts — abandoning interrupt context
+000C76r 2  6C 02 03       jmp (BRK_PTR)                 ; BRK — dispatch with P/PCL/PCH still on stack
+000C79r 2               
+000C79r 2               ; NMI Vector
+000C79r 2               NmiVec:
+000C79r 2  6C 04 03       jmp (NMI_PTR)                 ; Indirect jump through NMI pointer to the NMI handler
+000C7Cr 2               
+000C7Cr 2               ; Reset Vector
+000C7Cr 2               ResetVec:
+000C7Cr 2  4C rr rr       jmp Reset                     ; Initialize the system
+000C7Fr 2               
+000C7Fr 2               ; IRQ Vector
+000C7Fr 2               IrqVec:
+000C7Fr 2  6C 00 03       jmp (IRQ_PTR)                 ; Indirect jump through IRQ pointer to the IRQ handler
+000C82r 2               
+000C82r 1               .segment "CHARS"
 000000r 1               .include "Chars.asm"
 000000r 2               ; IBM Code Page 437 Character Set
 000000r 2               ; 6x8 pixel font in 8x8 area, 8 bytes per character (256 characters total)
@@ -6115,7 +6125,7 @@ Current file: BIOS.asm
 000EA1r 2               
 000EA1r 2                 ; Search FOR stack from top for matching variable
 000EA1r 2  A6 1B          ldx BAS_FORSP
-000EA3r 2  F0 5D          beq @NextNoFor
+000EA3r 2  F0 63          beq @NextNoFor
 000EA5r 2               
 000EA5r 2               @NextSearch:
 000EA5r 2  CA             dex                            ; Back up past padding and entries
@@ -6123,7 +6133,7 @@ Current file: BIOS.asm
 000EA7r 2  38             sec
 000EA8r 2  E9 0F          sbc #BAS_FOR_ENTRY - 1         ; Point to start of this entry
 000EAAr 2  AA             tax
-000EABr 2  30 55          bmi @NextNoFor
+000EABr 2  30 5B          bmi @NextNoFor
 000EADr 2  BD 80 05       lda BAS_FORSTK,x               ; var_offset
 000EB0r 2  C5 21          cmp BAS_TEMP
 000EB2r 2  F0 02          beq @NextFound
@@ -6163,7 +6173,7 @@ Current file: BIOS.asm
 000EE6r 2                 ; Step positive: compare var (ACC) vs limit (AUX)
 000EE6r 2                 ; Done if ACC > AUX (i.e., AUX < ACC)
 000EE6r 2  20 rr rr       jsr BasCmpAuxAcc
-000EE9r 2  30 14          bmi @NextDone                  ; AUX < ACC means var > limit
+000EE9r 2  30 1A          bmi @NextDone                  ; AUX < ACC means var > limit
 000EEBr 2  80 07          bra @NextLoop                  ; Continue loop
 000EEDr 2               
 000EEDr 2               @NextStepNeg:
@@ -6171,7 +6181,7 @@ Current file: BIOS.asm
 000EEDr 2                 ; Done if ACC < AUX (i.e., AUX > ACC)
 000EEDr 2  20 rr rr       jsr BasCmpAuxAcc
 000EF0r 2  F0 02          beq @NextLoop
-000EF2r 2  10 0B          bpl @NextDone                  ; AUX > ACC means var < limit
+000EF2r 2  10 11          bpl @NextDone                  ; AUX > ACC means var < limit
 000EF4r 2               
 000EF4r 2               @NextLoop:
 000EF4r 2                 ; Continue loop — set CURLINE to body start
@@ -6180,374 +6190,378 @@ Current file: BIOS.asm
 000EF7r 2  85 06          sta BAS_CURLINE
 000EF9r 2  BD 86 05       lda BAS_FORSTK + 6,x           ; body_start hi
 000EFCr 2  85 07          sta BAS_CURLINE + 1
-000EFEr 2                 ; Run loop will detect CURLINE change and re-execute from body
-000EFEr 2  60             rts
-000EFFr 2               
-000EFFr 2               @NextDone:
-000EFFr 2                 ; Loop complete — remove this FOR entry from stack
-000EFFr 2  86 1B          stx BAS_FORSP                  ; Pop down to this entry (removes it)
-000F01r 2  60             rts
-000F02r 2               
-000F02r 2               @NextNoFor:
-000F02r 2               @NextErr:
-000F02r 2  A9 05          lda #ERR_NEXT_NO_FOR
-000F04r 2  4C rr rr       jmp BasError
-000F07r 2               
-000F07r 2               ; --- END ---
-000F07r 2               BasCmdEnd:
-000F07r 2  64 17          stz BAS_FLAGS                  ; Clear run flag
-000F09r 2  60             rts                            ; Returns to BasRunLoop which checks flags
-000F0Ar 2               
-000F0Ar 2               ; --- SYS ---
-000F0Ar 2               ; SYS <address> — Call machine code at 16-bit address, RTS returns to BASIC
-000F0Ar 2               BasCmdSys:
-000F0Ar 2  20 rr rr       jsr BasExpr                    ; Evaluate address expression → BAS_ACC
-000F0Dr 2                 ; Use BAS_TMP2 as the indirect jump target
-000F0Dr 2  A5 0A          lda BAS_ACC
-000F0Fr 2  85 10          sta BAS_TMP2
-000F11r 2  A5 0B          lda BAS_ACC + 1
-000F13r 2  85 11          sta BAS_TMP2 + 1
-000F15r 2  6C 10 00       jmp (BAS_TMP2)                 ; JSR-like: callee RTSes back to caller
-000F18r 2               
-000F18r 2               ; --- LOAD ---
-000F18r 2               ; LOAD "filename" — Load from CF filesystem
-000F18r 2               ; LOAD (no arg)   — Load via serial Intel HEX
-000F18r 2               BasCmdLoad:
-000F18r 2  20 rr rr       jsr BasSkipSpaces
-000F1Br 2  20 rr rr       jsr BasGetTokChar
-000F1Er 2  C9 22          cmp #CH_QUOTE
-000F20r 2  F0 0E          beq @LoadCF
-000F22r 2               
-000F22r 2                 ; No filename — serial Intel HEX load
-000F22r 2  20 rr rr       jsr HexLoad
-000F25r 2  B0 40          bcs @LoadErr
-000F27r 2                 ; Update BAS_PRGEND from HEX_PTR (points past last byte written)
-000F27r 2  A5 2A          lda HEX_PTR
-000F29r 2  85 12          sta BAS_PRGEND
-000F2Br 2  A5 2B          lda HEX_PTR + 1
-000F2Dr 2  85 13          sta BAS_PRGEND + 1
-000F2Fr 2  60             rts
-000F30r 2               
-000F30r 2               @LoadCF:
-000F30r 2                 ; Parse quoted filename into STR_PTR for FsLoadFile
-000F30r 2  20 rr rr       jsr BasAdvTxtPtr               ; Skip opening quote
-000F33r 2                 ; Point STR_PTR at current position in tokenized text
-000F33r 2  A5 04          lda BAS_TXTPTR
-000F35r 2  85 02          sta STR_PTR
-000F37r 2  A5 05          lda BAS_TXTPTR + 1
-000F39r 2  85 03          sta STR_PTR + 1
-000F3Br 2                 ; Advance TXTPTR past the filename to closing quote
-000F3Br 2               @LoadScanName:
-000F3Br 2  20 rr rr       jsr BasGetTokChar
-000F3Er 2  F0 12          beq @LoadNameDone              ; End of line (unterminated — use what we have)
-000F40r 2  C9 22          cmp #CH_QUOTE
-000F42r 2  F0 05          beq @LoadNameEnd
-000F44r 2  20 rr rr       jsr BasAdvTxtPtr
-000F47r 2  80 F2          bra @LoadScanName
-000F49r 2               @LoadNameEnd:
-000F49r 2                 ; Null-terminate the filename in the token buffer (overwrite closing quote)
-000F49r 2  A0 00          ldy #$00
-000F4Br 2  A9 00          lda #$00
-000F4Dr 2  91 04          sta (BAS_TXTPTR),y
-000F4Fr 2  20 rr rr       jsr BasAdvTxtPtr               ; Skip past the closing quote
-000F52r 2               @LoadNameDone:
-000F52r 2                 ; Call filesystem load
-000F52r 2  20 rr rr       jsr FsLoadFile
-000F55r 2  B0 10          bcs @LoadErr
-000F57r 2                 ; Update BAS_PRGEND: PROGRAM_START + FS_FILE_SIZE
-000F57r 2  A9 00          lda #<PROGRAM_START
-000F59r 2  18             clc
-000F5Ar 2  6D 4A 03       adc FS_FILE_SIZE
-000F5Dr 2  85 12          sta BAS_PRGEND
-000F5Fr 2  A9 08          lda #>PROGRAM_START
-000F61r 2  6D 4B 03       adc FS_FILE_SIZE + 1
-000F64r 2  85 13          sta BAS_PRGEND + 1
-000F66r 2  60             rts
-000F67r 2               
-000F67r 2               @LoadErr:
-000F67r 2  A9 rr          lda #<BasStrLoadErr
-000F69r 2  85 0E          sta BAS_TMP1
-000F6Br 2  A9 rr          lda #>BasStrLoadErr
-000F6Dr 2  85 0F          sta BAS_TMP1 + 1
-000F6Fr 2  20 rr rr       jsr BasPrintStr
-000F72r 2  60             rts
-000F73r 2               
-000F73r 2               ; --- SAVE ---
-000F73r 2               ; SAVE "filename" — Save to CF filesystem
-000F73r 2               ; SAVE (no arg)   — Save via serial Intel HEX
-000F73r 2               BasCmdSave:
-000F73r 2  20 rr rr       jsr BasSkipSpaces
-000F76r 2  20 rr rr       jsr BasGetTokChar
-000F79r 2  C9 22          cmp #CH_QUOTE
-000F7Br 2  F0 04          beq @SaveCF
-000F7Dr 2               
-000F7Dr 2                 ; No filename — serial Intel HEX save
-000F7Dr 2  20 rr rr       jsr HexSave
-000F80r 2  60             rts
-000F81r 2               
-000F81r 2               @SaveCF:
-000F81r 2                 ; Parse quoted filename into STR_PTR for FsSaveFile
-000F81r 2  20 rr rr       jsr BasAdvTxtPtr               ; Skip opening quote
-000F84r 2  A5 04          lda BAS_TXTPTR
-000F86r 2  85 02          sta STR_PTR
-000F88r 2  A5 05          lda BAS_TXTPTR + 1
-000F8Ar 2  85 03          sta STR_PTR + 1
-000F8Cr 2                 ; Advance TXTPTR past the filename to closing quote
-000F8Cr 2               @SaveScanName:
-000F8Cr 2  20 rr rr       jsr BasGetTokChar
-000F8Fr 2  F0 12          beq @SaveNameDone
-000F91r 2  C9 22          cmp #CH_QUOTE
-000F93r 2  F0 05          beq @SaveNameEnd
-000F95r 2  20 rr rr       jsr BasAdvTxtPtr
-000F98r 2  80 F2          bra @SaveScanName
-000F9Ar 2               @SaveNameEnd:
-000F9Ar 2  A0 00          ldy #$00
-000F9Cr 2  A9 00          lda #$00
-000F9Er 2  91 04          sta (BAS_TXTPTR),y
-000FA0r 2  20 rr rr       jsr BasAdvTxtPtr               ; Skip past the closing quote
-000FA3r 2               @SaveNameDone:
-000FA3r 2                 ; Calculate file size = BAS_PRGEND - PROGRAM_START
-000FA3r 2  A5 12          lda BAS_PRGEND
-000FA5r 2  38             sec
-000FA6r 2  E9 00          sbc #<PROGRAM_START
-000FA8r 2  8D 4A 03       sta FS_FILE_SIZE
-000FABr 2  A5 13          lda BAS_PRGEND + 1
-000FADr 2  E9 08          sbc #>PROGRAM_START
-000FAFr 2  8D 4B 03       sta FS_FILE_SIZE + 1
-000FB2r 2                 ; Call filesystem save
-000FB2r 2  20 rr rr       jsr FsSaveFile
-000FB5r 2  B0 01          bcs @SaveErr
-000FB7r 2  60             rts
-000FB8r 2               
-000FB8r 2               @SaveErr:
-000FB8r 2  A9 rr          lda #<BasStrSaveErr
-000FBAr 2  85 0E          sta BAS_TMP1
-000FBCr 2  A9 rr          lda #>BasStrSaveErr
-000FBEr 2  85 0F          sta BAS_TMP1 + 1
-000FC0r 2  20 rr rr       jsr BasPrintStr
-000FC3r 2  60             rts
-000FC4r 2               
-000FC4r 2               ; --- DIR ---
-000FC4r 2               ; DIR — Print directory listing from CF
-000FC4r 2               BasCmdDir:
-000FC4r 2  20 rr rr       jsr FsDirectory
-000FC7r 2  60             rts
-000FC8r 2               
-000FC8r 2               ; --- BRK ---
-000FC8r 2               BasCmdBrk:
-000FC8r 2  64 17          stz BAS_FLAGS                  ; Clear run flag
-000FCAr 2  00             brk                            ; Trigger BRK → IRQ vector → Wozmon
-000FCBr 2               
-000FCBr 2               ; --- NEW ---
-000FCBr 2               BasCmdNew:
-000FCBr 2                 ; Set program end to program start (empty program)
-000FCBr 2  A9 00          lda #<BAS_PRG_START
-000FCDr 2  85 12          sta BAS_PRGEND
-000FCFr 2  A9 08          lda #>BAS_PRG_START
-000FD1r 2  85 13          sta BAS_PRGEND + 1
-000FD3r 2                 ; Write end marker
-000FD3r 2  A0 00          ldy #LINE_NEXT
-000FD5r 2  A9 00          lda #$00
-000FD7r 2  91 12          sta (BAS_PRGEND),y
-000FD9r 2  C8             iny
-000FDAr 2  91 12          sta (BAS_PRGEND),y
-000FDCr 2                 ; Clear variables
-000FDCr 2  20 rr rr       jsr BasCmdClr
-000FDFr 2  64 17          stz BAS_FLAGS
-000FE1r 2  4C rr rr       jmp BasMainLoop
-000FE4r 2               
-000FE4r 2               ; --- LIST ---
-000FE4r 2               BasCmdList:
-000FE4r 2                 ; Start at beginning of program
-000FE4r 2  A9 00          lda #<BAS_PRG_START
-000FE6r 2  85 0E          sta BAS_TMP1
-000FE8r 2  A9 08          lda #>BAS_PRG_START
-000FEAr 2  85 0F          sta BAS_TMP1 + 1
-000FECr 2               
-000FECr 2               @ListLoop:
-000FECr 2                 ; Check if at end of program (TMP1 == PRGEND)
-000FECr 2  A5 0E          lda BAS_TMP1
-000FEEr 2  C5 12          cmp BAS_PRGEND
-000FF0r 2  D0 06          bne @ListNotEnd
-000FF2r 2  A5 0F          lda BAS_TMP1 + 1
-000FF4r 2  C5 13          cmp BAS_PRGEND + 1
-000FF6r 2  F0 42          beq @ListDone
-000FF8r 2               @ListNotEnd:
-000FF8r 2               
-000FF8r 2                 ; Check for Ctrl+C break
-000FF8r 2  20 rr rr       jsr BasCheckBreak
-000FFBr 2               
-000FFBr 2                 ; Print line number
-000FFBr 2  A0 02          ldy #LINE_NUM
-000FFDr 2  B1 0E          lda (BAS_TMP1),y
-000FFFr 2  85 0A          sta BAS_ACC
-001001r 2  C8             iny
-001002r 2  B1 0E          lda (BAS_TMP1),y
-001004r 2  85 0B          sta BAS_ACC + 1
-001006r 2  20 rr rr       jsr BasPrintInt
-001009r 2               
-001009r 2                 ; Print space
-001009r 2  A9 20          lda #CH_SPACE
-00100Br 2  20 rr rr       jsr Chrout
-00100Er 2               
-00100Er 2                 ; Detokenize and print the payload
-00100Er 2                 ; Set TXTPTR to payload
-00100Er 2  18             clc
-00100Fr 2  A5 0E          lda BAS_TMP1
-001011r 2  69 04          adc #LINE_PAYLOAD
-001013r 2  85 04          sta BAS_TXTPTR
-001015r 2  A5 0F          lda BAS_TMP1 + 1
-001017r 2  69 00          adc #$00
-001019r 2  85 05          sta BAS_TXTPTR + 1
-00101Br 2               
-00101Br 2  20 rr rr       jsr BasDetokenize
-00101Er 2               
-00101Er 2                 ; Print CRLF
-00101Er 2  20 rr rr       jsr BasPrintCRLF
+000EFEr 2                 ; Invalidate saved CURLINE so run loop always detects the change,
+000EFEr 2                 ; even when body_start == current line (empty loop body / NEXT on next line)
+000EFEr 2  A9 FF          lda #$FF
+000F00r 2  85 14          sta BAS_VARPTR
+000F02r 2  85 15          sta BAS_VARPTR + 1
+000F04r 2  60             rts
+000F05r 2               
+000F05r 2               @NextDone:
+000F05r 2                 ; Loop complete — remove this FOR entry from stack
+000F05r 2  86 1B          stx BAS_FORSP                  ; Pop down to this entry (removes it)
+000F07r 2  60             rts
+000F08r 2               
+000F08r 2               @NextNoFor:
+000F08r 2               @NextErr:
+000F08r 2  A9 05          lda #ERR_NEXT_NO_FOR
+000F0Ar 2  4C rr rr       jmp BasError
+000F0Dr 2               
+000F0Dr 2               ; --- END ---
+000F0Dr 2               BasCmdEnd:
+000F0Dr 2  64 17          stz BAS_FLAGS                  ; Clear run flag
+000F0Fr 2  60             rts                            ; Returns to BasRunLoop which checks flags
+000F10r 2               
+000F10r 2               ; --- SYS ---
+000F10r 2               ; SYS <address> — Call machine code at 16-bit address, RTS returns to BASIC
+000F10r 2               BasCmdSys:
+000F10r 2  20 rr rr       jsr BasExpr                    ; Evaluate address expression → BAS_ACC
+000F13r 2                 ; Use BAS_TMP2 as the indirect jump target
+000F13r 2  A5 0A          lda BAS_ACC
+000F15r 2  85 10          sta BAS_TMP2
+000F17r 2  A5 0B          lda BAS_ACC + 1
+000F19r 2  85 11          sta BAS_TMP2 + 1
+000F1Br 2  6C 10 00       jmp (BAS_TMP2)                 ; JSR-like: callee RTSes back to caller
+000F1Er 2               
+000F1Er 2               ; --- LOAD ---
+000F1Er 2               ; LOAD "filename" — Load from CF filesystem
+000F1Er 2               ; LOAD (no arg)   — Load via serial Intel HEX
+000F1Er 2               BasCmdLoad:
+000F1Er 2  20 rr rr       jsr BasSkipSpaces
+000F21r 2  20 rr rr       jsr BasGetTokChar
+000F24r 2  C9 22          cmp #CH_QUOTE
+000F26r 2  F0 0E          beq @LoadCF
+000F28r 2               
+000F28r 2                 ; No filename — serial Intel HEX load
+000F28r 2  20 rr rr       jsr HexLoad
+000F2Br 2  B0 40          bcs @LoadErr
+000F2Dr 2                 ; Update BAS_PRGEND from HEX_PTR (points past last byte written)
+000F2Dr 2  A5 2A          lda HEX_PTR
+000F2Fr 2  85 12          sta BAS_PRGEND
+000F31r 2  A5 2B          lda HEX_PTR + 1
+000F33r 2  85 13          sta BAS_PRGEND + 1
+000F35r 2  60             rts
+000F36r 2               
+000F36r 2               @LoadCF:
+000F36r 2                 ; Parse quoted filename into STR_PTR for FsLoadFile
+000F36r 2  20 rr rr       jsr BasAdvTxtPtr               ; Skip opening quote
+000F39r 2                 ; Point STR_PTR at current position in tokenized text
+000F39r 2  A5 04          lda BAS_TXTPTR
+000F3Br 2  85 02          sta STR_PTR
+000F3Dr 2  A5 05          lda BAS_TXTPTR + 1
+000F3Fr 2  85 03          sta STR_PTR + 1
+000F41r 2                 ; Advance TXTPTR past the filename to closing quote
+000F41r 2               @LoadScanName:
+000F41r 2  20 rr rr       jsr BasGetTokChar
+000F44r 2  F0 12          beq @LoadNameDone              ; End of line (unterminated — use what we have)
+000F46r 2  C9 22          cmp #CH_QUOTE
+000F48r 2  F0 05          beq @LoadNameEnd
+000F4Ar 2  20 rr rr       jsr BasAdvTxtPtr
+000F4Dr 2  80 F2          bra @LoadScanName
+000F4Fr 2               @LoadNameEnd:
+000F4Fr 2                 ; Null-terminate the filename in the token buffer (overwrite closing quote)
+000F4Fr 2  A0 00          ldy #$00
+000F51r 2  A9 00          lda #$00
+000F53r 2  91 04          sta (BAS_TXTPTR),y
+000F55r 2  20 rr rr       jsr BasAdvTxtPtr               ; Skip past the closing quote
+000F58r 2               @LoadNameDone:
+000F58r 2                 ; Call filesystem load
+000F58r 2  20 rr rr       jsr FsLoadFile
+000F5Br 2  B0 10          bcs @LoadErr
+000F5Dr 2                 ; Update BAS_PRGEND: PROGRAM_START + FS_FILE_SIZE
+000F5Dr 2  A9 00          lda #<PROGRAM_START
+000F5Fr 2  18             clc
+000F60r 2  6D 4A 03       adc FS_FILE_SIZE
+000F63r 2  85 12          sta BAS_PRGEND
+000F65r 2  A9 08          lda #>PROGRAM_START
+000F67r 2  6D 4B 03       adc FS_FILE_SIZE + 1
+000F6Ar 2  85 13          sta BAS_PRGEND + 1
+000F6Cr 2  60             rts
+000F6Dr 2               
+000F6Dr 2               @LoadErr:
+000F6Dr 2  A9 rr          lda #<BasStrLoadErr
+000F6Fr 2  85 0E          sta BAS_TMP1
+000F71r 2  A9 rr          lda #>BasStrLoadErr
+000F73r 2  85 0F          sta BAS_TMP1 + 1
+000F75r 2  20 rr rr       jsr BasPrintStr
+000F78r 2  60             rts
+000F79r 2               
+000F79r 2               ; --- SAVE ---
+000F79r 2               ; SAVE "filename" — Save to CF filesystem
+000F79r 2               ; SAVE (no arg)   — Save via serial Intel HEX
+000F79r 2               BasCmdSave:
+000F79r 2  20 rr rr       jsr BasSkipSpaces
+000F7Cr 2  20 rr rr       jsr BasGetTokChar
+000F7Fr 2  C9 22          cmp #CH_QUOTE
+000F81r 2  F0 04          beq @SaveCF
+000F83r 2               
+000F83r 2                 ; No filename — serial Intel HEX save
+000F83r 2  20 rr rr       jsr HexSave
+000F86r 2  60             rts
+000F87r 2               
+000F87r 2               @SaveCF:
+000F87r 2                 ; Parse quoted filename into STR_PTR for FsSaveFile
+000F87r 2  20 rr rr       jsr BasAdvTxtPtr               ; Skip opening quote
+000F8Ar 2  A5 04          lda BAS_TXTPTR
+000F8Cr 2  85 02          sta STR_PTR
+000F8Er 2  A5 05          lda BAS_TXTPTR + 1
+000F90r 2  85 03          sta STR_PTR + 1
+000F92r 2                 ; Advance TXTPTR past the filename to closing quote
+000F92r 2               @SaveScanName:
+000F92r 2  20 rr rr       jsr BasGetTokChar
+000F95r 2  F0 12          beq @SaveNameDone
+000F97r 2  C9 22          cmp #CH_QUOTE
+000F99r 2  F0 05          beq @SaveNameEnd
+000F9Br 2  20 rr rr       jsr BasAdvTxtPtr
+000F9Er 2  80 F2          bra @SaveScanName
+000FA0r 2               @SaveNameEnd:
+000FA0r 2  A0 00          ldy #$00
+000FA2r 2  A9 00          lda #$00
+000FA4r 2  91 04          sta (BAS_TXTPTR),y
+000FA6r 2  20 rr rr       jsr BasAdvTxtPtr               ; Skip past the closing quote
+000FA9r 2               @SaveNameDone:
+000FA9r 2                 ; Calculate file size = BAS_PRGEND - PROGRAM_START
+000FA9r 2  A5 12          lda BAS_PRGEND
+000FABr 2  38             sec
+000FACr 2  E9 00          sbc #<PROGRAM_START
+000FAEr 2  8D 4A 03       sta FS_FILE_SIZE
+000FB1r 2  A5 13          lda BAS_PRGEND + 1
+000FB3r 2  E9 08          sbc #>PROGRAM_START
+000FB5r 2  8D 4B 03       sta FS_FILE_SIZE + 1
+000FB8r 2                 ; Call filesystem save
+000FB8r 2  20 rr rr       jsr FsSaveFile
+000FBBr 2  B0 01          bcs @SaveErr
+000FBDr 2  60             rts
+000FBEr 2               
+000FBEr 2               @SaveErr:
+000FBEr 2  A9 rr          lda #<BasStrSaveErr
+000FC0r 2  85 0E          sta BAS_TMP1
+000FC2r 2  A9 rr          lda #>BasStrSaveErr
+000FC4r 2  85 0F          sta BAS_TMP1 + 1
+000FC6r 2  20 rr rr       jsr BasPrintStr
+000FC9r 2  60             rts
+000FCAr 2               
+000FCAr 2               ; --- DIR ---
+000FCAr 2               ; DIR — Print directory listing from CF
+000FCAr 2               BasCmdDir:
+000FCAr 2  20 rr rr       jsr FsDirectory
+000FCDr 2  60             rts
+000FCEr 2               
+000FCEr 2               ; --- BRK ---
+000FCEr 2               BasCmdBrk:
+000FCEr 2  64 17          stz BAS_FLAGS                  ; Clear run flag
+000FD0r 2  00             brk                            ; Trigger BRK → IRQ vector → Wozmon
+000FD1r 2               
+000FD1r 2               ; --- NEW ---
+000FD1r 2               BasCmdNew:
+000FD1r 2                 ; Set program end to program start (empty program)
+000FD1r 2  A9 00          lda #<BAS_PRG_START
+000FD3r 2  85 12          sta BAS_PRGEND
+000FD5r 2  A9 08          lda #>BAS_PRG_START
+000FD7r 2  85 13          sta BAS_PRGEND + 1
+000FD9r 2                 ; Write end marker
+000FD9r 2  A0 00          ldy #LINE_NEXT
+000FDBr 2  A9 00          lda #$00
+000FDDr 2  91 12          sta (BAS_PRGEND),y
+000FDFr 2  C8             iny
+000FE0r 2  91 12          sta (BAS_PRGEND),y
+000FE2r 2                 ; Clear variables
+000FE2r 2  20 rr rr       jsr BasCmdClr
+000FE5r 2  64 17          stz BAS_FLAGS
+000FE7r 2  4C rr rr       jmp BasMainLoop
+000FEAr 2               
+000FEAr 2               ; --- LIST ---
+000FEAr 2               BasCmdList:
+000FEAr 2                 ; Start at beginning of program
+000FEAr 2  A9 00          lda #<BAS_PRG_START
+000FECr 2  85 0E          sta BAS_TMP1
+000FEEr 2  A9 08          lda #>BAS_PRG_START
+000FF0r 2  85 0F          sta BAS_TMP1 + 1
+000FF2r 2               
+000FF2r 2               @ListLoop:
+000FF2r 2                 ; Check if at end of program (TMP1 == PRGEND)
+000FF2r 2  A5 0E          lda BAS_TMP1
+000FF4r 2  C5 12          cmp BAS_PRGEND
+000FF6r 2  D0 06          bne @ListNotEnd
+000FF8r 2  A5 0F          lda BAS_TMP1 + 1
+000FFAr 2  C5 13          cmp BAS_PRGEND + 1
+000FFCr 2  F0 42          beq @ListDone
+000FFEr 2               @ListNotEnd:
+000FFEr 2               
+000FFEr 2                 ; Check for Ctrl+C break
+000FFEr 2  20 rr rr       jsr BasCheckBreak
+001001r 2               
+001001r 2                 ; Print line number
+001001r 2  A0 02          ldy #LINE_NUM
+001003r 2  B1 0E          lda (BAS_TMP1),y
+001005r 2  85 0A          sta BAS_ACC
+001007r 2  C8             iny
+001008r 2  B1 0E          lda (BAS_TMP1),y
+00100Ar 2  85 0B          sta BAS_ACC + 1
+00100Cr 2  20 rr rr       jsr BasPrintInt
+00100Fr 2               
+00100Fr 2                 ; Print space
+00100Fr 2  A9 20          lda #CH_SPACE
+001011r 2  20 rr rr       jsr Chrout
+001014r 2               
+001014r 2                 ; Detokenize and print the payload
+001014r 2                 ; Set TXTPTR to payload
+001014r 2  18             clc
+001015r 2  A5 0E          lda BAS_TMP1
+001017r 2  69 04          adc #LINE_PAYLOAD
+001019r 2  85 04          sta BAS_TXTPTR
+00101Br 2  A5 0F          lda BAS_TMP1 + 1
+00101Dr 2  69 00          adc #$00
+00101Fr 2  85 05          sta BAS_TXTPTR + 1
 001021r 2               
-001021r 2                 ; Advance to next line by scanning for null terminator
-001021r 2  A0 04          ldy #LINE_PAYLOAD
-001023r 2               @ListScan:
-001023r 2  B1 0E          lda (BAS_TMP1),y
-001025r 2  F0 03          beq @ListScanDone
-001027r 2  C8             iny
-001028r 2  80 F9          bra @ListScan
-00102Ar 2               @ListScanDone:
-00102Ar 2  C8             iny                            ; Past null
-00102Br 2  98             tya
-00102Cr 2  18             clc
-00102Dr 2  65 0E          adc BAS_TMP1
-00102Fr 2  85 0E          sta BAS_TMP1
-001031r 2  A9 00          lda #$00
-001033r 2  65 0F          adc BAS_TMP1 + 1
-001035r 2  85 0F          sta BAS_TMP1 + 1
-001037r 2  4C rr rr       jmp @ListLoop
-00103Ar 2               
-00103Ar 2               @ListDone:
-00103Ar 2  60             rts
-00103Br 2               
-00103Br 2               ; --- POKE addr, value ---
-00103Br 2               BasCmdPoke:
-00103Br 2  20 rr rr       jsr BasExpr                    ; Evaluate address
-00103Er 2  A5 0A          lda BAS_ACC
-001040r 2  85 10          sta BAS_TMP2
-001042r 2  A5 0B          lda BAS_ACC + 1
-001044r 2  85 11          sta BAS_TMP2 + 1
-001046r 2               
-001046r 2                 ; Expect comma
-001046r 2  20 rr rr       jsr BasSkipSpaces
-001049r 2  20 rr rr       jsr BasGetTokChar
-00104Cr 2  C9 2C          cmp #CH_COMMA
-00104Er 2  D0 0D          bne @PokeErr
-001050r 2  20 rr rr       jsr BasAdvTxtPtr
-001053r 2               
-001053r 2  20 rr rr       jsr BasExpr                    ; Evaluate value (low byte used)
-001056r 2  A5 0A          lda BAS_ACC
-001058r 2  A0 00          ldy #$00
-00105Ar 2  91 10          sta (BAS_TMP2),y
-00105Cr 2  60             rts
-00105Dr 2               
-00105Dr 2               @PokeErr:
-00105Dr 2  A9 00          lda #ERR_SYNTAX
-00105Fr 2  4C rr rr       jmp BasError
-001062r 2               
-001062r 2               ; ============================================================================
-001062r 2               ; Keyword Table
-001062r 2               ; ============================================================================
-001062r 2               ; Format: null-terminated keyword string, then token byte.
-001062r 2               ; Longer keywords first to prevent partial matches (e.g. GOSUB before GOTO).
-001062r 2               ; Table terminated by a lone $00.
-001062r 2               
-001062r 2               BasKeywordTable:
-001062r 2  52 45 54 55    .byte "RETURN", $00, TOK_RETURN
-001066r 2  52 4E 00 85  
-00106Ar 2  50 52 49 4E    .byte "PRINT",  $00, TOK_PRINT
-00106Er 2  54 00 80     
-001071r 2  49 4E 50 55    .byte "INPUT",  $00, TOK_INPUT
-001075r 2  54 00 81     
-001078r 2  47 4F 53 55    .byte "GOSUB",  $00, TOK_GOSUB
-00107Cr 2  42 00 84     
-00107Fr 2  47 4F 54 4F    .byte "GOTO",   $00, TOK_GOTO
-001083r 2  00 83        
-001085r 2  54 48 45 4E    .byte "THEN",   $00, TOK_THEN
-001089r 2  00 87        
-00108Br 2  53 54 45 50    .byte "STEP",   $00, TOK_STEP
-00108Fr 2  00 8A        
-001091r 2  4E 45 58 54    .byte "NEXT",   $00, TOK_NEXT
-001095r 2  00 8B        
-001097r 2  50 45 45 4B    .byte "PEEK",   $00, TOK_PEEK
-00109Br 2  00 92        
-00109Dr 2  50 4F 4B 45    .byte "POKE",   $00, TOK_POKE
-0010A1r 2  00 93        
-0010A3r 2  53 41 56 45    .byte "SAVE",   $00, TOK_SAVE
-0010A7r 2  00 A0        
-0010A9r 2  4C 4F 41 44    .byte "LOAD",   $00, TOK_LOAD
-0010ADr 2  00 9F        
-0010AFr 2  4C 49 53 54    .byte "LIST",   $00, TOK_LIST
-0010B3r 2  00 8E        
-0010B5r 2  4C 45 54 00    .byte "LET",    $00, TOK_LET
-0010B9r 2  82           
-0010BAr 2  46 4F 52 00    .byte "FOR",    $00, TOK_FOR
-0010BEr 2  88           
-0010BFr 2  52 45 4D 00    .byte "REM",    $00, TOK_REM
-0010C3r 2  8C           
-0010C4r 2  45 4E 44 00    .byte "END",    $00, TOK_END
-0010C8r 2  8D           
-0010C9r 2  52 55 4E 00    .byte "RUN",    $00, TOK_RUN
-0010CDr 2  8F           
-0010CEr 2  4E 45 57 00    .byte "NEW",    $00, TOK_NEW
-0010D2r 2  90           
-0010D3r 2  43 4C 52 00    .byte "CLR",    $00, TOK_CLR
-0010D7r 2  91           
-0010D8r 2  41 42 53 00    .byte "ABS",    $00, TOK_ABS
-0010DCr 2  94           
-0010DDr 2  52 4E 44 00    .byte "RND",    $00, TOK_RND
-0010E1r 2  95           
-0010E2r 2  4E 4F 54 00    .byte "NOT",    $00, TOK_NOT
-0010E6r 2  96           
-0010E7r 2  41 4E 44 00    .byte "AND",    $00, TOK_AND
-0010EBr 2  97           
-0010ECr 2  4D 4F 44 00    .byte "MOD",    $00, TOK_MOD
-0010F0r 2  99           
-0010F1r 2  53 59 53 00    .byte "SYS",    $00, TOK_SYS
-0010F5r 2  9E           
-0010F6r 2  44 49 52 00    .byte "DIR",    $00, TOK_DIR
-0010FAr 2  A1           
-0010FBr 2  42 52 4B 00    .byte "BRK",    $00, TOK_BRK
-0010FFr 2  9D           
-001100r 2  49 46 00 86    .byte "IF",     $00, TOK_IF
-001104r 2  54 4F 00 89    .byte "TO",     $00, TOK_TO
-001108r 2  4F 52 00 98    .byte "OR",     $00, TOK_OR
-00110Cr 2  00             .byte $00                       ; End of table sentinel
-00110Dr 2               
-00110Dr 2               ; ============================================================================
-00110Dr 2               ; String Data
-00110Dr 2               ; ============================================================================
-00110Dr 2               
-00110Dr 2  0D 0A 43 4F  BasStrWelcome:  .byte CH_CR, CH_LF, "COB BASIC v1.0", CH_CR, CH_LF, $00
-001111r 2  42 20 42 41  
-001115r 2  53 49 43 20  
-001120r 2  0D 0A 4F 4B  BasStrOK:       .byte CH_CR, CH_LF, "OK", CH_CR, CH_LF, $00
-001124r 2  0D 0A 00     
-001127r 2  20 42 59 54  BasStrFree:     .byte " BYTES FREE", $00
-00112Br 2  45 53 20 46  
-00112Fr 2  52 45 45 00  
-001133r 2  20 45 52 52  BasStrError:    .byte " ERROR", $00
-001137r 2  4F 52 00     
-00113Ar 2  20 49 4E 20  BasStrIn:       .byte " IN ", $00
-00113Er 2  00           
-00113Fr 2  3F 52 45 44  BasStrRedo:     .byte "?REDO", CH_CR, CH_LF, $00
-001143r 2  4F 0D 0A 00  
-001147r 2  3F 20 00     BasStrPrompt:   .byte "? ", $00
-00114Ar 2  0D 0A 3F 4C  BasStrLoadErr:  .byte CH_CR, CH_LF, "?LOAD ERROR", CH_CR, CH_LF, $00
-00114Er 2  4F 41 44 20  
-001152r 2  45 52 52 4F  
-00115Ar 2  0D 0A 3F 53  BasStrSaveErr:  .byte CH_CR, CH_LF, "?SAVE ERROR", CH_CR, CH_LF, $00
-00115Er 2  41 56 45 20  
-001162r 2  45 52 52 4F  
-00116Ar 2               
-00116Ar 2               
-00116Ar 1               .segment "WOZMON"
+001021r 2  20 rr rr       jsr BasDetokenize
+001024r 2               
+001024r 2                 ; Print CRLF
+001024r 2  20 rr rr       jsr BasPrintCRLF
+001027r 2               
+001027r 2                 ; Advance to next line by scanning for null terminator
+001027r 2  A0 04          ldy #LINE_PAYLOAD
+001029r 2               @ListScan:
+001029r 2  B1 0E          lda (BAS_TMP1),y
+00102Br 2  F0 03          beq @ListScanDone
+00102Dr 2  C8             iny
+00102Er 2  80 F9          bra @ListScan
+001030r 2               @ListScanDone:
+001030r 2  C8             iny                            ; Past null
+001031r 2  98             tya
+001032r 2  18             clc
+001033r 2  65 0E          adc BAS_TMP1
+001035r 2  85 0E          sta BAS_TMP1
+001037r 2  A9 00          lda #$00
+001039r 2  65 0F          adc BAS_TMP1 + 1
+00103Br 2  85 0F          sta BAS_TMP1 + 1
+00103Dr 2  4C rr rr       jmp @ListLoop
+001040r 2               
+001040r 2               @ListDone:
+001040r 2  60             rts
+001041r 2               
+001041r 2               ; --- POKE addr, value ---
+001041r 2               BasCmdPoke:
+001041r 2  20 rr rr       jsr BasExpr                    ; Evaluate address
+001044r 2  A5 0A          lda BAS_ACC
+001046r 2  85 10          sta BAS_TMP2
+001048r 2  A5 0B          lda BAS_ACC + 1
+00104Ar 2  85 11          sta BAS_TMP2 + 1
+00104Cr 2               
+00104Cr 2                 ; Expect comma
+00104Cr 2  20 rr rr       jsr BasSkipSpaces
+00104Fr 2  20 rr rr       jsr BasGetTokChar
+001052r 2  C9 2C          cmp #CH_COMMA
+001054r 2  D0 0D          bne @PokeErr
+001056r 2  20 rr rr       jsr BasAdvTxtPtr
+001059r 2               
+001059r 2  20 rr rr       jsr BasExpr                    ; Evaluate value (low byte used)
+00105Cr 2  A5 0A          lda BAS_ACC
+00105Er 2  A0 00          ldy #$00
+001060r 2  91 10          sta (BAS_TMP2),y
+001062r 2  60             rts
+001063r 2               
+001063r 2               @PokeErr:
+001063r 2  A9 00          lda #ERR_SYNTAX
+001065r 2  4C rr rr       jmp BasError
+001068r 2               
+001068r 2               ; ============================================================================
+001068r 2               ; Keyword Table
+001068r 2               ; ============================================================================
+001068r 2               ; Format: null-terminated keyword string, then token byte.
+001068r 2               ; Longer keywords first to prevent partial matches (e.g. GOSUB before GOTO).
+001068r 2               ; Table terminated by a lone $00.
+001068r 2               
+001068r 2               BasKeywordTable:
+001068r 2  52 45 54 55    .byte "RETURN", $00, TOK_RETURN
+00106Cr 2  52 4E 00 85  
+001070r 2  50 52 49 4E    .byte "PRINT",  $00, TOK_PRINT
+001074r 2  54 00 80     
+001077r 2  49 4E 50 55    .byte "INPUT",  $00, TOK_INPUT
+00107Br 2  54 00 81     
+00107Er 2  47 4F 53 55    .byte "GOSUB",  $00, TOK_GOSUB
+001082r 2  42 00 84     
+001085r 2  47 4F 54 4F    .byte "GOTO",   $00, TOK_GOTO
+001089r 2  00 83        
+00108Br 2  54 48 45 4E    .byte "THEN",   $00, TOK_THEN
+00108Fr 2  00 87        
+001091r 2  53 54 45 50    .byte "STEP",   $00, TOK_STEP
+001095r 2  00 8A        
+001097r 2  4E 45 58 54    .byte "NEXT",   $00, TOK_NEXT
+00109Br 2  00 8B        
+00109Dr 2  50 45 45 4B    .byte "PEEK",   $00, TOK_PEEK
+0010A1r 2  00 92        
+0010A3r 2  50 4F 4B 45    .byte "POKE",   $00, TOK_POKE
+0010A7r 2  00 93        
+0010A9r 2  53 41 56 45    .byte "SAVE",   $00, TOK_SAVE
+0010ADr 2  00 A0        
+0010AFr 2  4C 4F 41 44    .byte "LOAD",   $00, TOK_LOAD
+0010B3r 2  00 9F        
+0010B5r 2  4C 49 53 54    .byte "LIST",   $00, TOK_LIST
+0010B9r 2  00 8E        
+0010BBr 2  4C 45 54 00    .byte "LET",    $00, TOK_LET
+0010BFr 2  82           
+0010C0r 2  46 4F 52 00    .byte "FOR",    $00, TOK_FOR
+0010C4r 2  88           
+0010C5r 2  52 45 4D 00    .byte "REM",    $00, TOK_REM
+0010C9r 2  8C           
+0010CAr 2  45 4E 44 00    .byte "END",    $00, TOK_END
+0010CEr 2  8D           
+0010CFr 2  52 55 4E 00    .byte "RUN",    $00, TOK_RUN
+0010D3r 2  8F           
+0010D4r 2  4E 45 57 00    .byte "NEW",    $00, TOK_NEW
+0010D8r 2  90           
+0010D9r 2  43 4C 52 00    .byte "CLR",    $00, TOK_CLR
+0010DDr 2  91           
+0010DEr 2  41 42 53 00    .byte "ABS",    $00, TOK_ABS
+0010E2r 2  94           
+0010E3r 2  52 4E 44 00    .byte "RND",    $00, TOK_RND
+0010E7r 2  95           
+0010E8r 2  4E 4F 54 00    .byte "NOT",    $00, TOK_NOT
+0010ECr 2  96           
+0010EDr 2  41 4E 44 00    .byte "AND",    $00, TOK_AND
+0010F1r 2  97           
+0010F2r 2  4D 4F 44 00    .byte "MOD",    $00, TOK_MOD
+0010F6r 2  99           
+0010F7r 2  53 59 53 00    .byte "SYS",    $00, TOK_SYS
+0010FBr 2  9E           
+0010FCr 2  44 49 52 00    .byte "DIR",    $00, TOK_DIR
+001100r 2  A1           
+001101r 2  42 52 4B 00    .byte "BRK",    $00, TOK_BRK
+001105r 2  9D           
+001106r 2  49 46 00 86    .byte "IF",     $00, TOK_IF
+00110Ar 2  54 4F 00 89    .byte "TO",     $00, TOK_TO
+00110Er 2  4F 52 00 98    .byte "OR",     $00, TOK_OR
+001112r 2  00             .byte $00                       ; End of table sentinel
+001113r 2               
+001113r 2               ; ============================================================================
+001113r 2               ; String Data
+001113r 2               ; ============================================================================
+001113r 2               
+001113r 2  0D 0A 43 4F  BasStrWelcome:  .byte CH_CR, CH_LF, "COB BASIC v1.0", CH_CR, CH_LF, $00
+001117r 2  42 20 42 41  
+00111Br 2  53 49 43 20  
+001126r 2  0D 0A 4F 4B  BasStrOK:       .byte CH_CR, CH_LF, "OK", CH_CR, CH_LF, $00
+00112Ar 2  0D 0A 00     
+00112Dr 2  20 42 59 54  BasStrFree:     .byte " BYTES FREE", $00
+001131r 2  45 53 20 46  
+001135r 2  52 45 45 00  
+001139r 2  20 45 52 52  BasStrError:    .byte " ERROR", $00
+00113Dr 2  4F 52 00     
+001140r 2  20 49 4E 20  BasStrIn:       .byte " IN ", $00
+001144r 2  00           
+001145r 2  3F 52 45 44  BasStrRedo:     .byte "?REDO", CH_CR, CH_LF, $00
+001149r 2  4F 0D 0A 00  
+00114Dr 2  3F 20 00     BasStrPrompt:   .byte "? ", $00
+001150r 2  0D 0A 3F 4C  BasStrLoadErr:  .byte CH_CR, CH_LF, "?LOAD ERROR", CH_CR, CH_LF, $00
+001154r 2  4F 41 44 20  
+001158r 2  45 52 52 4F  
+001160r 2  0D 0A 3F 53  BasStrSaveErr:  .byte CH_CR, CH_LF, "?SAVE ERROR", CH_CR, CH_LF, $00
+001164r 2  41 56 45 20  
+001168r 2  45 52 52 4F  
+001170r 2               
+001170r 2               
+001170r 1               .segment "WOZMON"
 000000r 1               .include "Wozmon.asm"
 000000r 2               ; ***             ***
 000000r 2               ; ***   WOZMON    ***

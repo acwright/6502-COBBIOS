@@ -3032,7 +3032,11 @@ BasCmdNext:
   sta BAS_CURLINE
   lda BAS_FORSTK + 6,x           ; body_start hi
   sta BAS_CURLINE + 1
-  ; Run loop will detect CURLINE change and re-execute from body
+  ; Invalidate saved CURLINE so run loop always detects the change,
+  ; even when body_start == current line (empty loop body / NEXT on next line)
+  lda #$FF
+  sta BAS_VARPTR
+  sta BAS_VARPTR + 1
   rts
 
 @NextDone:
