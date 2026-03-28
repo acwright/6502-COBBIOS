@@ -3274,6 +3274,9 @@ BasCmdLoad:
   beq @LoadCF
 
   ; No filename — serial ASCII load
+  lda HW_PRESENT
+  and #HW_SC
+  beq @LoadNoDev
   jsr AsciiLoad
   bcs @LoadErr
   ; Update BAS_PRGEND from XFER_PTR (points past last byte written)
@@ -3283,7 +3286,13 @@ BasCmdLoad:
   sta BAS_PRGEND + 1
   rts
 
+@LoadNoDev:
+  jmp BasPrintNoDevice
+
 @LoadCF:
+  lda HW_PRESENT
+  and #HW_CF
+  beq @LoadNoDev
   ; Parse quoted filename into STR_PTR for FsLoadFile
   jsr BasAdvTxtPtr               ; Skip opening quote
   ; Point STR_PTR at current position in tokenized text
@@ -3337,10 +3346,19 @@ BasCmdSave:
   beq @SaveCF
 
   ; No filename — serial ASCII save
+  lda HW_PRESENT
+  and #HW_SC
+  beq @SaveNoDev
   jsr AsciiSave
   rts
 
+@SaveNoDev:
+  jmp BasPrintNoDevice
+
 @SaveCF:
+  lda HW_PRESENT
+  and #HW_CF
+  beq @SaveNoDev
   ; Parse quoted filename into STR_PTR for FsSaveFile
   jsr BasAdvTxtPtr               ; Skip opening quote
   lda BAS_TXTPTR
@@ -3385,12 +3403,22 @@ BasCmdSave:
 ; --- DIR ---
 ; DIR — Print directory listing from CF
 BasCmdDir:
+  lda HW_PRESENT
+  and #HW_CF
+  bne @DirHasCF
+  jmp BasPrintNoDevice
+@DirHasCF:
   jsr FsDirectory
   rts
 
 ; --- DEL ---
 ; DEL "filename" — Delete a file from CF
 BasCmdDel:
+  lda HW_PRESENT
+  and #HW_CF
+  bne @DelHasCF
+  jmp BasPrintNoDevice
+@DelHasCF:
   jsr BasSkipSpaces
   jsr BasGetTokChar
   cmp #CH_QUOTE
@@ -3473,6 +3501,11 @@ BasCmdColor:
 ; freq is in Hz; converted to SID register via: reg = Hz*16 + Hz - Hz/4
 ; Approximation of Hz * 2^24 / 1000000 ≈ Hz * 16.75 (0.16% error)
 BasCmdSound:
+  lda HW_PRESENT
+  and #HW_SID
+  bne @SoundStart
+  rts
+@SoundStart:
   jsr BasExpr                    ; voice (1-3) -> BAS_ACC
   lda BAS_ACC
   dec a                          ; convert to 0-indexed
@@ -3536,6 +3569,11 @@ BasCmdSound:
 
 ; --- VOL n ---
 BasCmdVol:
+  lda HW_PRESENT
+  and #HW_SID
+  bne @VolStart
+  rts
+@VolStart:
   jsr BasExpr
   lda BAS_ACC
   jsr SidSetVolume
@@ -3564,6 +3602,11 @@ BasPrint2Digit:
 
 ; --- TIME ---
 BasCmdTime:
+  lda HW_PRESENT
+  and #HW_RTC
+  bne @TimeHasRTC
+  jmp BasPrintNoDevice
+@TimeHasRTC:
   jsr RtcReadTime                ; A=hours, X=minutes, Y=seconds
   phy                            ; save seconds
   phx                            ; save minutes
@@ -3581,6 +3624,11 @@ BasCmdTime:
 
 ; --- DATE ---
 BasCmdDate:
+  lda HW_PRESENT
+  and #HW_RTC
+  bne @DateHasRTC
+  jmp BasPrintNoDevice
+@DateHasRTC:
   jsr RtcReadDate                ; A=day, X=month, Y=year; RTC_BUF_CENT=century
   pha                            ; save day
   phx                            ; save month
@@ -3631,6 +3679,11 @@ BasCmdPause:
 
 ; --- BANK n ---
 BasCmdBank:
+  lda HW_PRESENT
+  and #HW_RAM_L
+  bne @BankHasRAM
+  jmp BasPrintNoDevice
+@BankHasRAM:
   jsr BasExpr
   lda BAS_ACC
   sta RAM_BANK_L
@@ -3809,6 +3862,18 @@ BasKeywordTable:
   .byte $00                       ; End of table sentinel
 
 ; ============================================================================
+; BasPrintNoDevice — Print "?NO DEVICE" and return
+; Used by hardware-guarded commands when device is absent
+; ============================================================================
+BasPrintNoDevice:
+  lda #<BasStrNoDevice
+  sta BAS_TMP1
+  lda #>BasStrNoDevice
+  sta BAS_TMP1 + 1
+  jsr BasPrintStr
+  rts
+
+; ============================================================================
 ; String Data
 ; ============================================================================
 
@@ -3822,4 +3887,5 @@ BasStrPrompt:   .byte "? ", $00
 BasStrLoadErr:  .byte CH_CR, CH_LF, "?LOAD ERROR", CH_CR, CH_LF, $00
 BasStrSaveErr:  .byte CH_CR, CH_LF, "?SAVE ERROR", CH_CR, CH_LF, $00
 BasStrDelErr:   .byte CH_CR, CH_LF, "?DEL ERROR", CH_CR, CH_LF, $00
+BasStrNoDevice: .byte CH_CR, CH_LF, "?NO DEVICE", CH_CR, CH_LF, $00
 
