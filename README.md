@@ -184,23 +184,6 @@ All public Kernal entry points are accessed through stable 3-byte `jmp` slots. C
 
 ---
 
-## 6502 Assembly References
-
-These resources are useful for writing programs that run on the COB or extend COBBIOS:
-
-- **[6502.org Reference](http://6502.org/tutorials/)** — tutorials, opcode tables, and addressing mode guides
-- **[6502 Instruction Set (masswerk)](https://www.masswerk.at/6502/6502_instruction_set.html)** — concise opcode reference with cycle counts and flags
-- **[cc65 Assembler Manual](https://cc65.github.io/doc/ca65.html)** — ca65 directives, segments, macros, and linker config used to build this ROM
-- **[cc65 Linker Manual](https://cc65.github.io/doc/ld65.html)** — `.cfg` file syntax for defining memory regions and segments
-- **[WDC 65C02 Datasheet](https://www.westerndesigncenter.com/wdc/documentation/w65c02s.pdf)** — official CPU reference for the 65C02 variant
-- **[TMS9918 Programmer's Guide](http://bitsavers.org/components/ti/TMS9900/TMS9918_TMS9928_TMS9929_Video_Display_Processors.pdf)** — register map and VRAM layout for the video chip
-- **[DS1511Y RTC Datasheet](https://www.analog.com/media/en/technical-documentation/data-sheets/DS1511.pdf)** — register map and BCD time/date format
-- **[MOS 6551 ACIA Datasheet](http://archive.6502.org/datasheets/mos_6551_acia.pdf)** — serial interface chip used for the serial port
-- **[MOS 6581 SID Datasheet](http://archive.6502.org/datasheets/mos_6581_sid.pdf)** — sound chip register reference
-- **[Wozmon Source & Commentary](https://github.com/jefftranter/6502/tree/master/asm/wozmon)** — annotated reconstruction of the Apple II monitor included in this ROM
-
----
-
 ## Prerequisites
 
 ### Install cc65 Toolchain

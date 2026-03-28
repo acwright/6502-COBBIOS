@@ -12,6 +12,12 @@ CF_BUF_PTR          := $24               ; $24-$25 - CF sector data buffer point
 CF_LBA              := $26               ; $26-$29 - CF 28-bit LBA address (4 bytes, little-endian)
 XFER_PTR            := $2A               ; $2A-$2B - Serial transfer data pointer (2 bytes)
 DELAY_CNT           := $2C               ; $2C-$2D - SysDelay 16-bit centisecond counter
+; Monitor ZP variables ($2E-$35)
+MON_ADDR            := $2E               ; $2E-$2F - Monitor current address (2 bytes)
+MON_END             := $30               ; $30-$31 - Monitor end address (2 bytes)
+MON_TMP             := $32               ; $32-$33 - Monitor temp pointer (2 bytes)
+MON_BYTE            := $34               ; $34     - Monitor parsed byte scratch
+MON_IDX             := $35               ; $35     - Monitor input line index
 
 ; Stack
 STACK               := $0100             ; $0100-$01FF
@@ -34,7 +40,10 @@ RTC_TMP             := $030C             ; Scratch byte for BCD conversion
 BRK_P               := $0310             ; Saved P at time of BRK
 BRK_PCL             := $0311             ; Saved PCL at time of BRK (points to BRK+2)
 BRK_PCH             := $0312             ; Saved PCH at time of BRK
-                                         ; $0313-$0316 Reserved
+BRK_A               := $0313             ; Saved A at time of BRK
+BRK_X               := $0314             ; Saved X at time of BRK
+BRK_Y               := $0315             ; Saved Y at time of BRK
+BRK_SP              := $0316             ; Saved SP at time of BRK
 XFER_REMAIN         := $0317             ; $0317-$0318 - Remaining bytes to transfer (2 bytes)
 XFER_IO_SAVE        := $0319             ; Saved IO_MODE before switching to serial
                                          ; $031A-$031F Reserved

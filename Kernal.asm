@@ -436,8 +436,7 @@ Reset:
   jsr VideoClear                ; Clear screen before entering BASIC
   jmp BasEntry
 @BootMonitor:
-  jsr VideoClear                ; Clear screen before entering Monitor
-  jmp MonitorEntry
+  brk                           ; Enter monitor through BRK vector (saves/displays registers)
 
 ; Initialize the Keyboard via VIA (IO 6)
 ; Configures Port B (matrix) and Port A (PS/2) as inputs
@@ -1877,18 +1876,22 @@ Splash:
 Nmi:
   rti
 
-; BRK Handler — default dispatches to WozMon
-; On entry the stack holds the processor-pushed state from the BRK:
-;   SP+1 = saved P, SP+2 = PCL (PC+2), SP+3 = PCH
-; State is saved to BRK_P/BRK_PCL/BRK_PCH for inspection by a custom handler.
+; BRK Handler — saves full CPU state and enters monitor
+; On entry from @IrqBrk: A/X/Y are the user's original values (restored by IRQ handler).
+; The CPU's hardware push left P/PCL/PCH on the stack.
 Break:
+  sta BRK_A                     ; Save user's A register
+  stx BRK_X                     ; Save user's X register
+  sty BRK_Y                     ; Save user's Y register
+  tsx                           ; Get current SP
+  stx BRK_SP                   ; Save SP (points below P/PCL/PCH on stack)
   pla                           ; Pull saved P
   sta BRK_P
   pla                           ; Pull saved PCL (PC+2)
   sta BRK_PCL
   pla                           ; Pull saved PCH
   sta BRK_PCH
-  jmp MonitorEntry
+  jmp MonitorBrkEntry
 
 ; IRQ Handler
 Irq:
