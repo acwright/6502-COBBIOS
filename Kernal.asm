@@ -441,30 +441,71 @@ Reset:
   jsr InitCharacters
 @SkipVideo:
 
-  lda #$00                      ; Default to video output mode
+  ; Console auto-detection — determine IO_MODE from available hardware
+  lda HW_PRESENT
+  and #HW_VID
+  bne @ConsoleVideo             ; Video present — use it
+  lda HW_PRESENT
+  and #HW_SC
+  bne @ConsoleSerial            ; Serial present — use it
+  ; Neither video nor serial — halt (no console available)
+@Halt:
+  bra @Halt
+
+@ConsoleVideo:
+  lda #$00                      ; IO_MODE = video
   sta IO_MODE
-  stz VID_CURSOR_X              ; Initialize video cursor state
+  stz VID_CURSOR_X
   stz VID_CURSOR_Y
   stz VID_CURSOR_ADDR
   stz VID_CURSOR_ADDR + 1
+  bra @ConsoleDone
 
-  jsr Beep                      ; Play the startup beep
-  jsr Splash                    ; Draw the splash screen
+@ConsoleSerial:
+  lda #$01                      ; IO_MODE = serial
+  sta IO_MODE
+
+@ConsoleDone:
+  jsr Beep                      ; Play the startup beep (guarded — skips if no SID)
+  jsr Splash                    ; Draw the splash screen (guarded — skips if no video)
 
   cli                           ; Enable interrupts
 
-  ; Boot menu — wait for keypress
+  ; Boot menu — wait for keypress with ~5-second timeout
+  ; Each iteration delays 100ms then checks for a key. 50 iterations = 5 seconds.
+  ldx #50                       ; Timeout counter: 50 × 100ms = 5 seconds
 @BootWait:
+  phx                           ; Save timeout counter
+  lda #10                       ; 10 centiseconds (100ms)
+  ldx #$00                      ; High byte = 0
+  jsr SysDelay
   jsr BufferSize
-  beq @BootWait                 ; Loop until a key is pressed
+  plx                           ; Restore timeout counter
+  bne @BootGotKey               ; Key available — process it
+  dex
+  bne @BootWait                 ; No key yet — keep waiting
+  bra @BootBASIC                ; Timeout — auto-boot BASIC
+
+@BootGotKey:
+  phx                           ; Save counter in case we loop back
   jsr ReadBuffer                ; Read the keypress
   cmp #$0D                      ; ENTER?
-  beq @BootBASIC
+  beq @BootKeyBASIC
   cmp #$1B                      ; ESC?
-  beq @BootMonitor
-  bra @BootWait                 ; Ignore other keys
+  beq @BootKeyMonitor
+  plx                           ; Restore counter — ignore other keys
+  bra @BootWait
+
+@BootKeyBASIC:
+  plx                           ; Clean up stack
+  bra @BootBASIC
+
+@BootKeyMonitor:
+  plx                           ; Clean up stack
+  bra @BootMonitor
+
 @BootBASIC:
-  jsr VideoClear                ; Clear screen before entering BASIC
+  jsr VideoClear                ; Clear screen (harmless if no video)
   jmp BasEntry
 @BootMonitor:
   brk                           ; Enter monitor through BRK vector (saves/displays registers)
