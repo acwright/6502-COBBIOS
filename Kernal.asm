@@ -479,30 +479,23 @@ Reset:
   lda #10                       ; 10 centiseconds (100ms)
   ldx #$00                      ; High byte = 0
   jsr SysDelay
-  jsr BufferSize
-  plx                           ; Restore timeout counter
+  jsr BufferSize                ; A = bytes in buffer
+  plx                           ; Restore timeout counter (clobbers Z flag)
+  cmp #$00                      ; Re-test buffer size — plx overwrote Z
   bne @BootGotKey               ; Key available — process it
   dex
   bne @BootWait                 ; No key yet — keep waiting
   bra @BootBASIC                ; Timeout — auto-boot BASIC
 
 @BootGotKey:
-  phx                           ; Save counter in case we loop back
   jsr ReadBuffer                ; Read the keypress
   cmp #$0D                      ; ENTER?
-  beq @BootKeyBASIC
+  beq @BootBASIC
   cmp #$1B                      ; ESC?
-  beq @BootKeyMonitor
-  plx                           ; Restore counter — ignore other keys
-  bra @BootWait
-
-@BootKeyBASIC:
-  plx                           ; Clean up stack
-  bra @BootBASIC
-
-@BootKeyMonitor:
-  plx                           ; Clean up stack
-  bra @BootMonitor
+  beq @BootMonitor
+  dex                           ; Consumed a non-menu key — decrement counter
+  bne @BootWait                 ; Keep waiting if time remains
+  bra @BootBASIC                ; Timeout — auto-boot BASIC
 
 @BootBASIC:
   jsr VideoClear                ; Clear screen (harmless if no video)
