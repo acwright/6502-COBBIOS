@@ -3470,6 +3470,8 @@ BasCmdColor:
   rts
 
 ; --- SOUND voice, freq, dur ---
+; freq is in Hz; converted to SID register via: reg = Hz*16 + Hz - Hz/4
+; Approximation of Hz * 2^24 / 1000000 ≈ Hz * 16.75 (0.16% error)
 BasCmdSound:
   jsr BasExpr                    ; voice (1-3) -> BAS_ACC
   lda BAS_ACC
@@ -3478,11 +3480,43 @@ BasCmdSound:
   jsr BasSkipSpaces
   lda #CH_COMMA
   jsr BasExpectChar
-  jsr BasExpr                    ; freq -> BAS_ACC
+  jsr BasExpr                    ; freq (Hz) -> BAS_ACC
+  ; --- Convert Hz to SID register value ---
+  lda BAS_ACC                    ; save Hz in BAS_SCRATCH
+  sta BAS_SCRATCH
   lda BAS_ACC + 1
-  pha                            ; save freqHi on stack
+  sta BAS_SCRATCH + 1
+  asl BAS_ACC                    ; BAS_ACC = Hz << 4 (multiply by 16)
+  rol BAS_ACC + 1
+  asl BAS_ACC
+  rol BAS_ACC + 1
+  asl BAS_ACC
+  rol BAS_ACC + 1
+  asl BAS_ACC
+  rol BAS_ACC + 1
+  clc                            ; BAS_ACC += Hz (now Hz * 17)
   lda BAS_ACC
-  pha                            ; save freqLo on stack
+  adc BAS_SCRATCH
+  sta BAS_ACC
+  lda BAS_ACC + 1
+  adc BAS_SCRATCH + 1
+  sta BAS_ACC + 1
+  lsr BAS_SCRATCH + 1            ; BAS_SCRATCH = Hz / 4
+  ror BAS_SCRATCH
+  lsr BAS_SCRATCH + 1
+  ror BAS_SCRATCH
+  sec                            ; BAS_ACC -= Hz/4 (now Hz * 16.75)
+  lda BAS_ACC
+  sbc BAS_SCRATCH
+  sta BAS_ACC
+  lda BAS_ACC + 1
+  sbc BAS_SCRATCH + 1
+  sta BAS_ACC + 1
+  ; --- SID register value now in BAS_ACC ---
+  lda BAS_ACC + 1
+  pha                            ; save regHi on stack
+  lda BAS_ACC
+  pha                            ; save regLo on stack
   jsr BasSkipSpaces
   lda #CH_COMMA
   jsr BasExpectChar
