@@ -9,15 +9,52 @@ COBBIOS is the firmware ROM for the COB, a homebrew 6502 single-board computer. 
 
 ### Boot Sequence
 
-On reset, the Kernal initialises all hardware subsystems (video, keyboard, serial, sound, RTC, and CompactFlash storage), plays a short beep, and displays a splash screen:
+The COB is a computer-on-a-backplane design where every I/O card is optional. On reset, the Kernal probes each I/O slot to discover which hardware is installed and records the results in a single bitmask byte at `HW_PRESENT` (`$030D`). Only detected hardware is initialised — missing cards are silently skipped and never cause a hang.
+
+The probe-and-boot sequence is:
+
+1. **Clear `HW_PRESENT`** — all bits start at zero
+2. **Probe each I/O slot** — RAM (read-back), RTC (NVRAM read-back), CompactFlash (BSY/RDY with timeout), Serial (TDRE after reset), GPIO/VIA (DDR read-back), SID (active oscillator), Video (VRAM read-back)
+3. **Conditionally initialise** — each subsystem is only initialised if its probe succeeded
+4. **Console auto-detection** — if video is present, `IO_MODE` is set to video; if only serial is present, output is routed to the serial port; if neither is found, the CPU halts
+5. **Beep** — a short tone on the SID (skipped silently if SID absent)
+6. **Splash screen** — displayed on the active console:
 
 ```
   -- The 'COB' v1.0 --
 ENTER=BASIC  ESC=MONITOR
 ```
 
-- **ENTER** — launches the Integer BASIC interpreter
+7. **Boot menu with timeout** — waits ~5 seconds for a keypress, then auto-boots BASIC
+
+- **ENTER** (or timeout) — launches the Integer BASIC interpreter
 - **ESC** — drops into the machine-code monitor
+
+#### Hardware Presence Flags
+
+The `HW_PRESENT` byte at `$030D` can be read from user code or inspected in the monitor. Each bit corresponds to an I/O slot:
+
+| Bit | Mask | Card |
+|-----|------|------|
+| 0 | `$01` | RAM card low (IO 1) |
+| 1 | `$02` | RAM card high (IO 2) |
+| 2 | `$04` | RTC DS1511Y (IO 3) |
+| 3 | `$08` | CompactFlash (IO 4) |
+| 4 | `$10` | Serial R65C51 (IO 5) |
+| 5 | `$20` | GPIO/VIA 65C22 (IO 6) |
+| 6 | `$40` | SID/ARMSID (IO 7) |
+| 7 | `$80` | Video TMS9918 (IO 8) |
+
+#### Graceful Degradation
+
+All hardware-dependent operations are guarded at every level — Kernal, BASIC, and Monitor:
+
+- **CompactFlash absent** — `LOAD`, `SAVE`, `DIR` in BASIC print `NO DEVICE`; Monitor `L`, `S`, `@` print `I/O ERROR`; `StWaitReady` times out instead of hanging
+- **Serial absent** — IRQ handler skips serial status polling; `Chrin` flow control writes are suppressed; serial `LOAD`/`SAVE` return an error
+- **GPIO/VIA absent** — `SysDelay` falls back to a calibrated software busy-loop; `JOY()` returns 0; keyboard IRQ check is skipped
+- **SID absent** — `Beep`, `SOUND`, `VOL`, `SidPlayNote`, `SidSilence` silently return
+- **Video absent** — `CLS`, `LOCATE`, `COLOR` silently skip (arguments are still consumed); console auto-switches to serial
+- **RTC absent** — `TIME` and `DATE` in BASIC print `NO DEVICE`
 
 ### Integer BASIC
 
@@ -179,7 +216,7 @@ A SID chip provides audio output. The `Beep` Kernal routine plays a ~1000 Hz ton
 | `$0000–$00FF` | 256B | Zero page (Kernal + BASIC workspace) |
 | `$0100–$01FF` | 256B | CPU stack |
 | `$0200–$02FF` | 256B | Keyboard input ring buffer |
-| `$0300–$03FF` | 256B | Kernal variables (vectors, cursor, RTC, FS state) |
+| `$0300–$03FF` | 256B | Kernal variables (vectors, cursor, HW\_PRESENT, RTC, FS state) |
 | `$0400–$07FF` | 1KB | User / BASIC variables |
 | `$0800–$7FFF` | ~31KB | Program space |
 

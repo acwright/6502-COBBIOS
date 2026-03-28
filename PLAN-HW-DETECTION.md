@@ -500,6 +500,287 @@ At entry to `BasCmdSound` and `BasCmdVol`, check `HW_SID`. If absent → silentl
 
 ---
 
+## Phase 9 — Guard Remaining Hardware Paths (Monitor, Kernal, BASIC)
+
+Phase 8 covered BASIC's LOAD/SAVE/DIR/TIME/DATE/SOUND/VOL/BANK commands. This final phase guards every remaining unprotected hardware access: Monitor I/O commands, Kernal-level serial transfer routines, BASIC video commands, the JOY() function, and the SID/joystick Kernal implementations exposed through the jump table.
+
+### 9A — Guard Monitor Commands (L, S, @)
+
+**MonCmdDir** — Currently calls `FsDirectory` unconditionally, which reads CF sector 0.
+```asm
+MonCmdDir:
+  lda HW_PRESENT
+  and #HW_CF
+  bne @DirHasCF
+  jsr MonPrintIOErr              ; Reuse existing "I/O ERROR" message
+  rts
+@DirHasCF:
+  jsr FsDirectory
+  rts
+```
+
+**MonCmdLoad** — Two paths: CF (quoted filename) and serial (no filename).
+- CF path: guard with `HW_CF` before calling any `Fs*`/`St*` routines.
+- Serial path: guard with `HW_SC` before calling serial receive routines.
+```asm
+MonCmdLoad:
+  jsr MonSkipSpaces
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  cmp #'"'
+  bne @LoadSerial
+  ; --- CF path ---
+  lda HW_PRESENT
+  and #HW_CF
+  bne @LoadCF
+  jsr MonPrintIOErr
+  rts
+@LoadCF:
+  jmp @LoadCFBody               ; Continue to existing CF load logic
+
+@LoadSerial:
+  lda HW_PRESENT
+  and #HW_SC
+  bne @LoadSerialBody
+  jsr MonPrintIOErr
+  rts
+@LoadSerialBody:
+  ; ... existing serial load code ...
+```
+
+**MonCmdSave** — Same dual-path pattern as Load.
+- CF path: guard with `HW_CF`.
+- Serial path: guard with `HW_SC`.
+```asm
+MonCmdSave:
+  jsr MonSkipSpaces
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  cmp #'"'
+  bne @SaveSerial
+  ; --- CF path ---
+  lda HW_PRESENT
+  and #HW_CF
+  bne @SaveCF
+  jsr MonPrintIOErr
+  rts
+@SaveCF:
+  jmp @SaveCFBody               ; Continue to existing CF save logic
+
+@SaveSerial:
+  lda HW_PRESENT
+  and #HW_SC
+  bne @SaveSerialBody
+  jsr MonPrintIOErr
+  rts
+@SaveSerialBody:
+  ; ... existing serial save code ...
+```
+
+### 9B — Guard Kernal Serial Transfer Routines
+
+**AsciiLoadImpl** — Called from BASIC `LOAD` (serial path) and jump table. Guard at implementation entry:
+```asm
+AsciiLoadImpl:
+  lda HW_PRESENT
+  and #HW_SC
+  bne @AsciiLoadStart
+  sec                           ; Return carry set = error
+  rts
+@AsciiLoadStart:
+  ; ... existing code (save IO_MODE, switch to serial, etc.) ...
+```
+
+**AsciiSaveImpl** — Same pattern:
+```asm
+AsciiSaveImpl:
+  lda HW_PRESENT
+  and #HW_SC
+  bne @AsciiSaveStart
+  sec                           ; Return carry set = error
+  rts
+@AsciiSaveStart:
+  ; ... existing code ...
+```
+
+### 9C — Guard BASIC Video Commands
+
+**BasCmdCls** — Calls `VideoClear` without checking for video hardware:
+```asm
+BasCmdCls:
+  lda HW_PRESENT
+  and #HW_VID
+  beq @ClsDone                  ; No video — silently skip
+  jsr VideoClear
+@ClsDone:
+  rts
+```
+
+**BasCmdLocate** — Calls `VideoSetCursor` to position the cursor:
+```asm
+BasCmdLocate:
+  lda HW_PRESENT
+  and #HW_VID
+  bne @LocateStart
+  ; Still consume the arguments to avoid parse errors, then return
+  jsr BasExpr                   ; Consume row
+  jsr BasExpectComma
+  jsr BasExpr                   ; Consume col
+  rts
+@LocateStart:
+  ; ... existing LOCATE code ...
+```
+
+**BasCmdColor** — Calls `VideoSetColor` to set foreground/background:
+```asm
+BasCmdColor:
+  lda HW_PRESENT
+  and #HW_VID
+  bne @ColorStart
+  ; Consume arguments to avoid parse errors
+  jsr BasExpr                   ; Consume fg
+  jsr BasExpectComma
+  jsr BasExpr                   ; Consume bg
+  rts
+@ColorStart:
+  ; ... existing COLOR code ...
+```
+
+Note: For CLS, we silently skip (no arguments to consume). For LOCATE and COLOR, we must still parse arguments so the tokenizer/executor stays in sync with the program stream. This prevents `LOCATE 10,5 : PRINT "HI"` from failing on the `:` after LOCATE.
+
+### 9D — Guard BASIC JOY() Function
+
+**BasFnJoy** — Calls `ReadJoystick1` or `ReadJoystick2` which access GPIO ports directly:
+```asm
+BasFnJoy:
+  ; ... parse argument (1 or 2) into BAS_ACC ...
+  lda HW_PRESENT
+  and #HW_GPIO
+  bne @JoyHasGPIO
+  stz BAS_ACC                   ; Return 0 if GPIO absent
+  stz BAS_ACC + 1
+  rts
+@JoyHasGPIO:
+  ; ... existing joystick read code ...
+```
+
+### 9E — Guard Kernal Jump Table Implementations
+
+These implementations are exposed through the jump table and can be called directly by user programs. Guard them at the implementation level so callers don't need to check `HW_PRESENT` themselves.
+
+**SidPlayNoteImpl** — Writes to SID voice registers. Phase 6 guards `BeepImpl` (the boot caller) but not this entry point:
+```asm
+SidPlayNoteImpl:
+  lda HW_PRESENT
+  and #HW_SID
+  bne @SidPlayStart
+  rts                           ; No SID — silently return
+@SidPlayStart:
+  ; ... existing code ...
+```
+
+**SidSilenceImpl** — Clears SID registers. Same guard:
+```asm
+SidSilenceImpl:
+  lda HW_PRESENT
+  and #HW_SID
+  bne @SidSilenceStart
+  rts
+@SidSilenceStart:
+  ; ... existing code ...
+```
+
+**SidSetVolumeImpl** — Sets SID master volume:
+```asm
+SidSetVolumeImpl:
+  lda HW_PRESENT
+  and #HW_SID
+  bne @SidVolStart
+  rts
+@SidVolStart:
+  ; ... existing code ...
+```
+
+**ReadJoystick1Impl / ReadJoystick2Impl** — Manipulate GPIO PCR and read ports:
+```asm
+ReadJoystick1Impl:
+  lda HW_PRESENT
+  and #HW_GPIO
+  bne @Joy1Start
+  lda #$00                      ; Return 0 (no buttons/directions)
+  rts
+@Joy1Start:
+  ; ... existing code (sei, set CB2 high, read PORTB, restore PCR, cli) ...
+
+ReadJoystick2Impl:
+  lda HW_PRESENT
+  and #HW_GPIO
+  bne @Joy2Start
+  lda #$00
+  rts
+@Joy2Start:
+  ; ... existing code ...
+```
+
+### 9F — Verification Checklist
+
+After completing all guards, verify the full set of protected paths. Every routine that touches I/O space (`$8000-$9FFF`) must either:
+1. Be behind an `HW_PRESENT` guard in its own implementation, **or**
+2. Only be reachable from a caller that is itself guarded.
+
+**Audit table** (all entries should be ✓ after Phase 9):
+
+| Routine | Hardware | Guarded By |
+|---------|----------|------------|
+| `InitSCImpl` | Serial | Phase 2 (conditional call in Reset) |
+| `InitKBImpl` | GPIO | Phase 2 (conditional call in Reset) |
+| `InitSIDImpl` | SID | Phase 2 (conditional call in Reset) |
+| `InitVideoImpl` | Video | Phase 2 (conditional call in Reset) |
+| `InitCharacters` | Video | Phase 2 (conditional call in Reset) |
+| `StInit` / `StWaitReadyImpl` | CF | Phase 3 (timeout + HW_CF set on success) |
+| `StWaitDrq` | CF | Phase 3 (timeout) |
+| `StReadSectorImpl` | CF | Callers guarded (Phase 8 BASIC, Phase 9A Monitor) |
+| `StWriteSectorImpl` | CF | Callers guarded (Phase 8 BASIC, Phase 9A Monitor) |
+| `SysDelayImpl` | GPIO (timer) | Phase 3 (software fallback) |
+| `Irq` — serial check | Serial | Phase 4 |
+| `Irq` — keyboard check | GPIO | Phase 4 |
+| `ChrinImpl` — flow control | Serial | Phase 5 |
+| `BeepImpl` | SID | Phase 6 |
+| `Splash` | Video | Phase 6 |
+| `SidPlayNoteImpl` | SID | **Phase 9E** |
+| `SidSilenceImpl` | SID | **Phase 9E** |
+| `SidSetVolumeImpl` | SID | **Phase 9E** |
+| `ReadJoystick1Impl` | GPIO | **Phase 9E** |
+| `ReadJoystick2Impl` | GPIO | **Phase 9E** |
+| `AsciiLoadImpl` | Serial | **Phase 9B** |
+| `AsciiSaveImpl` | Serial | **Phase 9B** |
+| `MonCmdDir` | CF | **Phase 9A** |
+| `MonCmdLoad` — CF path | CF | **Phase 9A** |
+| `MonCmdLoad` — serial path | Serial | **Phase 9A** |
+| `MonCmdSave` — CF path | CF | **Phase 9A** |
+| `MonCmdSave` — serial path | Serial | **Phase 9A** |
+| `BasCmdLoad` — CF path | CF | Phase 8 |
+| `BasCmdLoad` — serial path | Serial | Phase 8 (via AsciiLoad → **Phase 9B**) |
+| `BasCmdSave` — CF path | CF | Phase 8 |
+| `BasCmdSave` — serial path | Serial | Phase 8 (via AsciiSave → **Phase 9B**) |
+| `BasCmdDir` | CF | Phase 8 |
+| `BasCmdTime` | RTC | Phase 8 |
+| `BasCmdDate` | RTC | Phase 8 |
+| `BasCmdSound` | SID | Phase 8 |
+| `BasCmdVol` | SID | Phase 8 |
+| `BasCmdBank` | RAM | Already guarded (pre-existing) |
+| `BasCmdCls` | Video | **Phase 9C** |
+| `BasCmdLocate` | Video | **Phase 9C** |
+| `BasCmdColor` | Video | **Phase 9C** |
+| `BasFnJoy` | GPIO | **Phase 9D** |
+
+**Final steps:**
+1. Run `make` — verify clean assembly with no errors.
+2. Grep the codebase for all direct references to I/O addresses (`$8000`–`$9FFF` range constants from BIOS.inc) and confirm each access site is covered.
+3. Commit with message: `phase 9: guard remaining hw paths (monitor, kernal, BASIC)`
+
+---
+
 ## Phase 9 — Guard Monitor Hardware Commands
 
 ### Monitor L/S CF Paths
