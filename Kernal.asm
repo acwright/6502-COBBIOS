@@ -725,6 +725,31 @@ SysDelayImpl:
   ; Return immediately if count is zero
   ora DELAY_CNT + 1
   beq @DelayDone
+  ; Check if VIA is present for hardware timer
+  lda HW_PRESENT
+  and #HW_GPIO
+  bne @DelayHardware
+  ; Software fallback — calibrated busy loop (~10ms per centisecond at 1MHz)
+  ; Inner loop: 5 cycles × 256 iterations × 8 = ~10240 cycles ≈ 10ms
+@DelaySoftLoop:
+  ldy #$00                      ; 256 outer iterations
+  ldx #8
+@DelaySoftInner:
+  dey
+  bne @DelaySoftInner
+  dex
+  bne @DelaySoftInner
+  ; 16-bit decrement of DELAY_CNT
+  lda DELAY_CNT
+  bne @SoftDecLo
+  dec DELAY_CNT + 1
+@SoftDecLo:
+  dec DELAY_CNT
+  lda DELAY_CNT
+  ora DELAY_CNT + 1
+  bne @DelaySoftLoop
+  rts
+@DelayHardware:
   ; Configure T1 one-shot mode: clear ACR bit 6
   lda GPIO_ACR
   and #%10111111
@@ -1153,17 +1178,33 @@ ProbeRTC:
 ; === CompactFlash Storage Driver (True 8-bit IDE Mode) ===
 
 ; StWaitReady — Wait for CompactFlash to become ready
-; Polls ST_STATUS until BSY=0 and RDY=1
-; Output: Carry clear = ready, Carry set = error (ERR bit set)
-; Modifies: Flags, A
+; Polls ST_STATUS until BSY=0 and RDY=1, with X/Y timeout (~65536 iterations)
+; Output: Carry clear = ready, Carry set = error or timeout
+; Modifies: Flags, A, X, Y
 StWaitReadyImpl:
+  ldx #$00                      ; Outer timeout counter (256 × 256 = 65536 iterations)
+  ldy #$00
 @StWaitBsy:
   lda ST_STATUS
   and #ST_STATUS_BSY            ; Check BSY bit
-  bne @StWaitBsy                ; Loop while busy
+  beq @StCheckRdy               ; BSY clear — check RDY
+  dey
+  bne @StWaitBsy
+  dex
+  bne @StWaitBsy
+  sec                           ; Timed out — no device
+  rts
+@StCheckRdy:
   lda ST_STATUS
   and #ST_STATUS_RDY            ; Check RDY bit
-  beq @StWaitBsy                ; Loop until ready
+  bne @StCheckErr               ; RDY set — check for errors
+  dey
+  bne @StWaitBsy
+  dex
+  bne @StWaitBsy
+  sec                           ; Timed out
+  rts
+@StCheckErr:
   lda ST_STATUS
   and #ST_STATUS_ERR            ; Check ERR bit
   bne @StWaitErr
@@ -1174,20 +1215,36 @@ StWaitReadyImpl:
   rts
 
 ; StWaitDrq — Wait for CompactFlash data request
-; Polls ST_STATUS until BSY=0 and DRQ=1
-; Output: Carry clear = DRQ active, Carry set = error
-; Modifies: Flags, A
+; Polls ST_STATUS until BSY=0 and DRQ=1, with X/Y timeout (~65536 iterations)
+; Output: Carry clear = DRQ active, Carry set = error or timeout
+; Modifies: Flags, A, X, Y
 StWaitDrq:
+  ldx #$00                      ; Outer timeout counter (256 × 256 = 65536 iterations)
+  ldy #$00
 @StDrqBsy:
   lda ST_STATUS
   and #ST_STATUS_BSY
+  beq @StDrqCheckDrq            ; BSY clear — check DRQ
+  dey
   bne @StDrqBsy
+  dex
+  bne @StDrqBsy
+  sec                           ; Timed out — no device
+  rts
+@StDrqCheckDrq:
   lda ST_STATUS
   and #ST_STATUS_ERR
   bne @StDrqErr
   lda ST_STATUS
   and #ST_STATUS_DRQ
-  beq @StDrqBsy
+  bne @StDrqOk                  ; DRQ set — ready for data
+  dey
+  bne @StDrqBsy
+  dex
+  bne @StDrqBsy
+  sec                           ; Timed out
+  rts
+@StDrqOk:
   clc
   rts
 @StDrqErr:
@@ -1200,7 +1257,11 @@ StWaitDrq:
 ; Modifies: Flags, A
 StInit:
   jsr StWaitReady
-  bcs @StInitDone
+  bcs @StInitDone               ; Timeout or error — CF not present
+  ; CF responded — set presence flag
+  lda HW_PRESENT
+  ora #HW_CF
+  sta HW_PRESENT
   lda #ST_FEAT_8BIT             ; Feature: enable 8-bit data I/O
   sta ST_FEATURE
   lda #ST_CMD_SET_FEAT          ; Set Features command

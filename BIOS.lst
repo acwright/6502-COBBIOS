@@ -978,1431 +978,1492 @@ Current file: BIOS.asm
 0004ACr 2  86 2D          stx DELAY_CNT + 1
 0004AEr 2                 ; Return immediately if count is zero
 0004AEr 2  05 2D          ora DELAY_CNT + 1
-0004B0r 2  F0 2F          beq @DelayDone
-0004B2r 2                 ; Configure T1 one-shot mode: clear ACR bit 6
-0004B2r 2  AD 0B 94       lda GPIO_ACR
-0004B5r 2  29 BF          and #%10111111
-0004B7r 2  8D 0B 94       sta GPIO_ACR
-0004BAr 2               @DelayLoop:
-0004BAr 2                 ; Load T1 latch: 9999 = $270F
-0004BAr 2  A9 0F          lda #$0F
-0004BCr 2  8D 06 94       sta GPIO_T1LL
-0004BFr 2  A9 27          lda #$27
-0004C1r 2  8D 07 94       sta GPIO_T1LH
-0004C4r 2                 ; Write T1CH to start countdown (also clears IFR T1 flag)
-0004C4r 2  A9 27          lda #$27
-0004C6r 2  8D 05 94       sta GPIO_T1CH
-0004C9r 2               @DelayPoll:
-0004C9r 2  AD 0D 94       lda GPIO_IFR
-0004CCr 2  29 40          and #%01000000                ; T1 timeout flag
-0004CEr 2  F0 F9          beq @DelayPoll
-0004D0r 2                 ; Clear flag by reading T1CL
-0004D0r 2  AD 04 94       lda GPIO_T1CL
-0004D3r 2                 ; 16-bit decrement
-0004D3r 2  A5 2C          lda DELAY_CNT
-0004D5r 2  D0 02          bne @DelayDecLo
-0004D7r 2  C6 2D          dec DELAY_CNT + 1
-0004D9r 2               @DelayDecLo:
-0004D9r 2  C6 2C          dec DELAY_CNT
-0004DBr 2                 ; Loop until both bytes zero
-0004DBr 2  A5 2C          lda DELAY_CNT
-0004DDr 2  05 2D          ora DELAY_CNT + 1
-0004DFr 2  D0 D9          bne @DelayLoop
-0004E1r 2               @DelayDone:
-0004E1r 2  60             rts
-0004E2r 2               
-0004E2r 2               ; SidSetVolume — Set SID master volume
-0004E2r 2               ; Input: A = volume (0-15); upper nibble of SID_MODE_VOL is cleared (no filter)
-0004E2r 2               ; Modifies: Flags, A
-0004E2r 2               SidSetVolumeImpl:
-0004E2r 2  29 0F          and #$0F
-0004E4r 2  8D 18 98       sta SID_MODE_VOL
-0004E7r 2  60             rts
-0004E8r 2               
-0004E8r 2               ; VideoSetColor — Set TMS9918 text color register
-0004E8r 2               ; Input: A = color byte (high nibble = fg color, low nibble = bg color)
-0004E8r 2               ; Modifies: Flags, A
-0004E8r 2               VideoSetColorImpl:
-0004E8r 2  8D 01 9C       sta VC_REG                    ; Data byte
-0004EBr 2  A9 87          lda #$87                      ; Register 7 | $80 (write mode flag)
-0004EDr 2  8D 01 9C       sta VC_REG
-0004F0r 2  60             rts
-0004F1r 2               
-0004F1r 2               ; KBDisable — Disable both keyboard encoders for raw port access
-0004F1r 2               ; Sets CB2 high (disable matrix encoder) and CA2 high (disable PS/2 encoder)
-0004F1r 2               ; Modifies: Flags, A
-0004F1r 2               KBDisable:
-0004F1r 2  A9 EE          lda #(GPIO_PCR_CB2_HI | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_HI | GPIO_PCR_CA1_NEG)
-0004F3r 2  8D 0C 94       sta GPIO_PCR
-0004F6r 2  60             rts
-0004F7r 2               
-0004F7r 2               ; KBEnable — Re-enable both keyboard encoders
-0004F7r 2               ; Sets CB2 low (enable matrix encoder) and CA2 low (enable PS/2 encoder)
-0004F7r 2               ; Modifies: Flags, A
-0004F7r 2               KBEnable:
-0004F7r 2  A9 CC          lda #(GPIO_PCR_CB2_LO | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_LO | GPIO_PCR_CA1_NEG)
-0004F9r 2  8D 0C 94       sta GPIO_PCR
-0004FCr 2  60             rts
-0004FDr 2               
-0004FDr 2               ; ReadJoystick1 — Read joystick 1 on Port B
-0004FDr 2               ; Temporarily disables matrix keyboard encoder (CB2 high) to read raw port data
-0004FDr 2               ; Output: A = joystick bitmask (bits: R-L-D-U-Y-X-B-A)
-0004FDr 2               ; Modifies: Flags, A
-0004FDr 2               ReadJoystick1Impl:
-0004FDr 2  78             sei                           ; Disable interrupts during raw port read
-0004FEr 2  AD 0C 94       lda GPIO_PCR
-000501r 2  48             pha                           ; Save current PCR state
-000502r 2                 ; Set CB2 high to disable matrix encoder, preserve CA2 state
-000502r 2  A9 EC          lda #(GPIO_PCR_CB2_HI | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_LO | GPIO_PCR_CA1_NEG)
-000504r 2  8D 0C 94       sta GPIO_PCR
-000507r 2  AD 00 94       lda GPIO_PORTB                ; Read raw joystick data from Port B
-00050Ar 2  AA             tax                           ; Save result in X
-00050Br 2  68             pla                           ; Restore original PCR state
-00050Cr 2  8D 0C 94       sta GPIO_PCR
-00050Fr 2  8A             txa                           ; Return result in A
-000510r 2  58             cli                           ; Re-enable interrupts
-000511r 2  60             rts
-000512r 2               
-000512r 2               ; ReadJoystick2 — Read joystick 2 on Port A
-000512r 2               ; Temporarily disables PS/2 keyboard encoder (CA2 high) to read raw port data
-000512r 2               ; Output: A = joystick bitmask (bits: R-L-D-U-Y-X-B-A)
-000512r 2               ; Modifies: Flags, A
-000512r 2               ReadJoystick2Impl:
-000512r 2  78             sei                           ; Disable interrupts during raw port read
-000513r 2  AD 0C 94       lda GPIO_PCR
-000516r 2  48             pha                           ; Save current PCR state
-000517r 2                 ; Set CA2 high to disable PS/2 encoder, preserve CB2 state
-000517r 2  A9 CE          lda #(GPIO_PCR_CB2_LO | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_HI | GPIO_PCR_CA1_NEG)
+0004B0r 2  F0 4F          beq @DelayDone
+0004B2r 2                 ; Check if VIA is present for hardware timer
+0004B2r 2  AD 0D 03       lda HW_PRESENT
+0004B5r 2  29 20          and #HW_GPIO
+0004B7r 2  D0 19          bne @DelayHardware
+0004B9r 2                 ; Software fallback — calibrated busy loop (~10ms per centisecond at 1MHz)
+0004B9r 2                 ; Inner loop: 5 cycles × 256 iterations × 8 = ~10240 cycles ≈ 10ms
+0004B9r 2               @DelaySoftLoop:
+0004B9r 2  A0 00          ldy #$00                      ; 256 outer iterations
+0004BBr 2  A2 08          ldx #8
+0004BDr 2               @DelaySoftInner:
+0004BDr 2  88             dey
+0004BEr 2  D0 FD          bne @DelaySoftInner
+0004C0r 2  CA             dex
+0004C1r 2  D0 FA          bne @DelaySoftInner
+0004C3r 2                 ; 16-bit decrement of DELAY_CNT
+0004C3r 2  A5 2C          lda DELAY_CNT
+0004C5r 2  D0 02          bne @SoftDecLo
+0004C7r 2  C6 2D          dec DELAY_CNT + 1
+0004C9r 2               @SoftDecLo:
+0004C9r 2  C6 2C          dec DELAY_CNT
+0004CBr 2  A5 2C          lda DELAY_CNT
+0004CDr 2  05 2D          ora DELAY_CNT + 1
+0004CFr 2  D0 E8          bne @DelaySoftLoop
+0004D1r 2  60             rts
+0004D2r 2               @DelayHardware:
+0004D2r 2                 ; Configure T1 one-shot mode: clear ACR bit 6
+0004D2r 2  AD 0B 94       lda GPIO_ACR
+0004D5r 2  29 BF          and #%10111111
+0004D7r 2  8D 0B 94       sta GPIO_ACR
+0004DAr 2               @DelayLoop:
+0004DAr 2                 ; Load T1 latch: 9999 = $270F
+0004DAr 2  A9 0F          lda #$0F
+0004DCr 2  8D 06 94       sta GPIO_T1LL
+0004DFr 2  A9 27          lda #$27
+0004E1r 2  8D 07 94       sta GPIO_T1LH
+0004E4r 2                 ; Write T1CH to start countdown (also clears IFR T1 flag)
+0004E4r 2  A9 27          lda #$27
+0004E6r 2  8D 05 94       sta GPIO_T1CH
+0004E9r 2               @DelayPoll:
+0004E9r 2  AD 0D 94       lda GPIO_IFR
+0004ECr 2  29 40          and #%01000000                ; T1 timeout flag
+0004EEr 2  F0 F9          beq @DelayPoll
+0004F0r 2                 ; Clear flag by reading T1CL
+0004F0r 2  AD 04 94       lda GPIO_T1CL
+0004F3r 2                 ; 16-bit decrement
+0004F3r 2  A5 2C          lda DELAY_CNT
+0004F5r 2  D0 02          bne @DelayDecLo
+0004F7r 2  C6 2D          dec DELAY_CNT + 1
+0004F9r 2               @DelayDecLo:
+0004F9r 2  C6 2C          dec DELAY_CNT
+0004FBr 2                 ; Loop until both bytes zero
+0004FBr 2  A5 2C          lda DELAY_CNT
+0004FDr 2  05 2D          ora DELAY_CNT + 1
+0004FFr 2  D0 D9          bne @DelayLoop
+000501r 2               @DelayDone:
+000501r 2  60             rts
+000502r 2               
+000502r 2               ; SidSetVolume — Set SID master volume
+000502r 2               ; Input: A = volume (0-15); upper nibble of SID_MODE_VOL is cleared (no filter)
+000502r 2               ; Modifies: Flags, A
+000502r 2               SidSetVolumeImpl:
+000502r 2  29 0F          and #$0F
+000504r 2  8D 18 98       sta SID_MODE_VOL
+000507r 2  60             rts
+000508r 2               
+000508r 2               ; VideoSetColor — Set TMS9918 text color register
+000508r 2               ; Input: A = color byte (high nibble = fg color, low nibble = bg color)
+000508r 2               ; Modifies: Flags, A
+000508r 2               VideoSetColorImpl:
+000508r 2  8D 01 9C       sta VC_REG                    ; Data byte
+00050Br 2  A9 87          lda #$87                      ; Register 7 | $80 (write mode flag)
+00050Dr 2  8D 01 9C       sta VC_REG
+000510r 2  60             rts
+000511r 2               
+000511r 2               ; KBDisable — Disable both keyboard encoders for raw port access
+000511r 2               ; Sets CB2 high (disable matrix encoder) and CA2 high (disable PS/2 encoder)
+000511r 2               ; Modifies: Flags, A
+000511r 2               KBDisable:
+000511r 2  A9 EE          lda #(GPIO_PCR_CB2_HI | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_HI | GPIO_PCR_CA1_NEG)
+000513r 2  8D 0C 94       sta GPIO_PCR
+000516r 2  60             rts
+000517r 2               
+000517r 2               ; KBEnable — Re-enable both keyboard encoders
+000517r 2               ; Sets CB2 low (enable matrix encoder) and CA2 low (enable PS/2 encoder)
+000517r 2               ; Modifies: Flags, A
+000517r 2               KBEnable:
+000517r 2  A9 CC          lda #(GPIO_PCR_CB2_LO | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_LO | GPIO_PCR_CA1_NEG)
 000519r 2  8D 0C 94       sta GPIO_PCR
-00051Cr 2  AD 01 94       lda GPIO_PORTA                ; Read raw joystick data from Port A
-00051Fr 2  AA             tax                           ; Save result in X
-000520r 2  68             pla                           ; Restore original PCR state
-000521r 2  8D 0C 94       sta GPIO_PCR
-000524r 2  8A             txa                           ; Return result in A
-000525r 2  58             cli                           ; Re-enable interrupts
-000526r 2  60             rts
-000527r 2               
-000527r 2               ; === BCD Conversion Helpers ===
-000527r 2               
-000527r 2               ; BcdToBin — Convert BCD byte to binary
-000527r 2               ; Input: A = BCD value (e.g. $35 represents 35)
-000527r 2               ; Output: A = binary value (e.g. 35 = $23)
-000527r 2               ; Modifies: Flags
-000527r 2               BcdToBin:
-000527r 2  48             pha
-000528r 2  4A             lsr a                         ; Shift tens digit to low nibble
-000529r 2  4A             lsr a
-00052Ar 2  4A             lsr a
-00052Br 2  4A             lsr a                         ; A = tens digit (0-9)
-00052Cr 2  0A             asl a                         ; A = tens * 2
-00052Dr 2  8D 0C 03       sta RTC_TMP
-000530r 2  0A             asl a                         ; A = tens * 4
-000531r 2  0A             asl a                         ; A = tens * 8
-000532r 2  18             clc
-000533r 2  6D 0C 03       adc RTC_TMP                   ; A = tens * 10 (8 + 2)
-000536r 2  8D 0C 03       sta RTC_TMP
-000539r 2  68             pla
-00053Ar 2  29 0F          and #$0F                      ; A = ones digit
-00053Cr 2  18             clc
-00053Dr 2  6D 0C 03       adc RTC_TMP                   ; A = tens * 10 + ones = binary
-000540r 2  60             rts
-000541r 2               
-000541r 2               ; BinToBcd — Convert binary byte to BCD
-000541r 2               ; Input: A = binary value (0-99)
-000541r 2               ; Output: A = BCD value
-000541r 2               ; Modifies: Flags, X
-000541r 2               BinToBcd:
-000541r 2  A2 FF          ldx #$FF                      ; Tens counter (starts at -1)
-000543r 2               @BinToBcdLoop:
-000543r 2  E8             inx
-000544r 2  38             sec
-000545r 2  E9 0A          sbc #10
-000547r 2  B0 FA          bcs @BinToBcdLoop             ; Count tens
-000549r 2  69 0A          adc #10                       ; Restore ones (carry clear, so adds 10 + 0)
-00054Br 2  8D 0C 03       sta RTC_TMP                   ; Save ones digit
-00054Er 2  8A             txa                           ; A = tens digit
-00054Fr 2  0A             asl a
-000550r 2  0A             asl a
-000551r 2  0A             asl a
-000552r 2  0A             asl a                         ; Shift tens to high nibble
-000553r 2  0D 0C 03       ora RTC_TMP                   ; Combine with ones
-000556r 2  60             rts
-000557r 2               
-000557r 2               ; === DS1511Y RTC Routines ===
-000557r 2               
-000557r 2               ; RtcReadTime — Read current time from DS1511Y
-000557r 2               ; Output: A = hours (binary), X = minutes (binary), Y = seconds (binary)
-000557r 2               ; Modifies: Flags
-000557r 2               RtcReadTimeImpl:
-000557r 2  AD 02 88       lda RTC_HR
-00055Ar 2  20 rr rr       jsr BcdToBin
-00055Dr 2  48             pha                           ; Save hours
-00055Er 2  AD 01 88       lda RTC_MIN
-000561r 2  20 rr rr       jsr BcdToBin
-000564r 2  AA             tax                           ; X = minutes
-000565r 2  AD 00 88       lda RTC_SEC
-000568r 2  20 rr rr       jsr BcdToBin
-00056Br 2  A8             tay                           ; Y = seconds
-00056Cr 2  68             pla                           ; A = hours
-00056Dr 2  60             rts
-00056Er 2               
-00056Er 2               ; RtcReadDate — Read current date from DS1511Y
-00056Er 2               ; Output: A = day of month (binary), X = month (binary), Y = year (binary)
-00056Er 2               ;         RTC_BUF_CENT = century (binary)
-00056Er 2               ; Modifies: Flags
-00056Er 2               RtcReadDateImpl:
-00056Er 2  AD 07 88       lda RTC_CENT
-000571r 2  20 rr rr       jsr BcdToBin
-000574r 2  8D 0B 03       sta RTC_BUF_CENT              ; Store century in buffer
-000577r 2  AD 05 88       lda RTC_MON
+00051Cr 2  60             rts
+00051Dr 2               
+00051Dr 2               ; ReadJoystick1 — Read joystick 1 on Port B
+00051Dr 2               ; Temporarily disables matrix keyboard encoder (CB2 high) to read raw port data
+00051Dr 2               ; Output: A = joystick bitmask (bits: R-L-D-U-Y-X-B-A)
+00051Dr 2               ; Modifies: Flags, A
+00051Dr 2               ReadJoystick1Impl:
+00051Dr 2  78             sei                           ; Disable interrupts during raw port read
+00051Er 2  AD 0C 94       lda GPIO_PCR
+000521r 2  48             pha                           ; Save current PCR state
+000522r 2                 ; Set CB2 high to disable matrix encoder, preserve CA2 state
+000522r 2  A9 EC          lda #(GPIO_PCR_CB2_HI | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_LO | GPIO_PCR_CA1_NEG)
+000524r 2  8D 0C 94       sta GPIO_PCR
+000527r 2  AD 00 94       lda GPIO_PORTB                ; Read raw joystick data from Port B
+00052Ar 2  AA             tax                           ; Save result in X
+00052Br 2  68             pla                           ; Restore original PCR state
+00052Cr 2  8D 0C 94       sta GPIO_PCR
+00052Fr 2  8A             txa                           ; Return result in A
+000530r 2  58             cli                           ; Re-enable interrupts
+000531r 2  60             rts
+000532r 2               
+000532r 2               ; ReadJoystick2 — Read joystick 2 on Port A
+000532r 2               ; Temporarily disables PS/2 keyboard encoder (CA2 high) to read raw port data
+000532r 2               ; Output: A = joystick bitmask (bits: R-L-D-U-Y-X-B-A)
+000532r 2               ; Modifies: Flags, A
+000532r 2               ReadJoystick2Impl:
+000532r 2  78             sei                           ; Disable interrupts during raw port read
+000533r 2  AD 0C 94       lda GPIO_PCR
+000536r 2  48             pha                           ; Save current PCR state
+000537r 2                 ; Set CA2 high to disable PS/2 encoder, preserve CB2 state
+000537r 2  A9 CE          lda #(GPIO_PCR_CB2_LO | GPIO_PCR_CB1_NEG | GPIO_PCR_CA2_HI | GPIO_PCR_CA1_NEG)
+000539r 2  8D 0C 94       sta GPIO_PCR
+00053Cr 2  AD 01 94       lda GPIO_PORTA                ; Read raw joystick data from Port A
+00053Fr 2  AA             tax                           ; Save result in X
+000540r 2  68             pla                           ; Restore original PCR state
+000541r 2  8D 0C 94       sta GPIO_PCR
+000544r 2  8A             txa                           ; Return result in A
+000545r 2  58             cli                           ; Re-enable interrupts
+000546r 2  60             rts
+000547r 2               
+000547r 2               ; === BCD Conversion Helpers ===
+000547r 2               
+000547r 2               ; BcdToBin — Convert BCD byte to binary
+000547r 2               ; Input: A = BCD value (e.g. $35 represents 35)
+000547r 2               ; Output: A = binary value (e.g. 35 = $23)
+000547r 2               ; Modifies: Flags
+000547r 2               BcdToBin:
+000547r 2  48             pha
+000548r 2  4A             lsr a                         ; Shift tens digit to low nibble
+000549r 2  4A             lsr a
+00054Ar 2  4A             lsr a
+00054Br 2  4A             lsr a                         ; A = tens digit (0-9)
+00054Cr 2  0A             asl a                         ; A = tens * 2
+00054Dr 2  8D 0C 03       sta RTC_TMP
+000550r 2  0A             asl a                         ; A = tens * 4
+000551r 2  0A             asl a                         ; A = tens * 8
+000552r 2  18             clc
+000553r 2  6D 0C 03       adc RTC_TMP                   ; A = tens * 10 (8 + 2)
+000556r 2  8D 0C 03       sta RTC_TMP
+000559r 2  68             pla
+00055Ar 2  29 0F          and #$0F                      ; A = ones digit
+00055Cr 2  18             clc
+00055Dr 2  6D 0C 03       adc RTC_TMP                   ; A = tens * 10 + ones = binary
+000560r 2  60             rts
+000561r 2               
+000561r 2               ; BinToBcd — Convert binary byte to BCD
+000561r 2               ; Input: A = binary value (0-99)
+000561r 2               ; Output: A = BCD value
+000561r 2               ; Modifies: Flags, X
+000561r 2               BinToBcd:
+000561r 2  A2 FF          ldx #$FF                      ; Tens counter (starts at -1)
+000563r 2               @BinToBcdLoop:
+000563r 2  E8             inx
+000564r 2  38             sec
+000565r 2  E9 0A          sbc #10
+000567r 2  B0 FA          bcs @BinToBcdLoop             ; Count tens
+000569r 2  69 0A          adc #10                       ; Restore ones (carry clear, so adds 10 + 0)
+00056Br 2  8D 0C 03       sta RTC_TMP                   ; Save ones digit
+00056Er 2  8A             txa                           ; A = tens digit
+00056Fr 2  0A             asl a
+000570r 2  0A             asl a
+000571r 2  0A             asl a
+000572r 2  0A             asl a                         ; Shift tens to high nibble
+000573r 2  0D 0C 03       ora RTC_TMP                   ; Combine with ones
+000576r 2  60             rts
+000577r 2               
+000577r 2               ; === DS1511Y RTC Routines ===
+000577r 2               
+000577r 2               ; RtcReadTime — Read current time from DS1511Y
+000577r 2               ; Output: A = hours (binary), X = minutes (binary), Y = seconds (binary)
+000577r 2               ; Modifies: Flags
+000577r 2               RtcReadTimeImpl:
+000577r 2  AD 02 88       lda RTC_HR
 00057Ar 2  20 rr rr       jsr BcdToBin
-00057Dr 2  AA             tax                           ; X = month
-00057Er 2  AD 06 88       lda RTC_YR
+00057Dr 2  48             pha                           ; Save hours
+00057Er 2  AD 01 88       lda RTC_MIN
 000581r 2  20 rr rr       jsr BcdToBin
-000584r 2  A8             tay                           ; Y = year
-000585r 2  AD 04 88       lda RTC_DATE
-000588r 2  20 rr rr       jsr BcdToBin                  ; A = day of month
-00058Br 2  60             rts
-00058Cr 2               
-00058Cr 2               ; RtcWriteTime — Set DS1511Y time
-00058Cr 2               ; Input: A = hours (binary), X = minutes (binary), Y = seconds (binary)
-00058Cr 2               ; Modifies: Flags, A, X
-00058Cr 2               RtcWriteTimeImpl:
-00058Cr 2  48             pha                           ; Save hours
-00058Dr 2  DA             phx                           ; Save minutes
-00058Er 2  5A             phy                           ; Save seconds
-00058Fr 2                 ; Set TE bit to inhibit update transfers
-00058Fr 2  AD 0F 88       lda RTC_CTRL_B
-000592r 2  09 80          ora #RTC_CTRL_B_TE
-000594r 2  8D 0F 88       sta RTC_CTRL_B
-000597r 2                 ; Write seconds
-000597r 2  68             pla                           ; A = seconds
-000598r 2  20 rr rr       jsr BinToBcd
-00059Br 2  8D 00 88       sta RTC_SEC
-00059Er 2                 ; Write minutes
-00059Er 2  68             pla                           ; A = minutes
-00059Fr 2  20 rr rr       jsr BinToBcd
-0005A2r 2  8D 01 88       sta RTC_MIN
-0005A5r 2                 ; Write hours
-0005A5r 2  68             pla                           ; A = hours
-0005A6r 2  20 rr rr       jsr BinToBcd
-0005A9r 2  8D 02 88       sta RTC_HR
-0005ACr 2                 ; Clear TE bit to resume updates
-0005ACr 2  AD 0F 88       lda RTC_CTRL_B
-0005AFr 2  29 7F          and #<~RTC_CTRL_B_TE
-0005B1r 2  8D 0F 88       sta RTC_CTRL_B
-0005B4r 2  60             rts
-0005B5r 2               
-0005B5r 2               ; RtcWriteDate — Set DS1511Y date
-0005B5r 2               ; Input: A = day of month (binary), X = month (binary), Y = year (binary)
-0005B5r 2               ;        RTC_BUF_CENT = century (binary)
-0005B5r 2               ; Modifies: Flags, A, X
-0005B5r 2               RtcWriteDateImpl:
-0005B5r 2  48             pha                           ; Save day
-0005B6r 2  DA             phx                           ; Save month
-0005B7r 2  5A             phy                           ; Save year
-0005B8r 2                 ; Set TE bit to inhibit update transfers
-0005B8r 2  AD 0F 88       lda RTC_CTRL_B
-0005BBr 2  09 80          ora #RTC_CTRL_B_TE
-0005BDr 2  8D 0F 88       sta RTC_CTRL_B
-0005C0r 2                 ; Write century
-0005C0r 2  AD 0B 03       lda RTC_BUF_CENT
-0005C3r 2  20 rr rr       jsr BinToBcd
-0005C6r 2  8D 07 88       sta RTC_CENT
-0005C9r 2                 ; Write year
-0005C9r 2  68             pla                           ; A = year
-0005CAr 2  20 rr rr       jsr BinToBcd
-0005CDr 2  8D 06 88       sta RTC_YR
-0005D0r 2                 ; Write month
-0005D0r 2  68             pla                           ; A = month
-0005D1r 2  20 rr rr       jsr BinToBcd
-0005D4r 2  8D 05 88       sta RTC_MON
-0005D7r 2                 ; Write day
-0005D7r 2  68             pla                           ; A = day
-0005D8r 2  20 rr rr       jsr BinToBcd
-0005DBr 2  8D 04 88       sta RTC_DATE
-0005DEr 2                 ; Clear TE bit to resume updates
-0005DEr 2  AD 0F 88       lda RTC_CTRL_B
-0005E1r 2  29 7F          and #<~RTC_CTRL_B_TE
-0005E3r 2  8D 0F 88       sta RTC_CTRL_B
-0005E6r 2  60             rts
-0005E7r 2               
-0005E7r 2               ; RtcReadNVRAM — Read a byte from DS1511Y NVRAM
-0005E7r 2               ; Input: X = NVRAM address ($00-$FF)
-0005E7r 2               ; Output: A = data byte
-0005E7r 2               ; Modifies: Flags
-0005E7r 2               RtcReadNVRAMImpl:
-0005E7r 2  8E 10 88       stx RTC_RAM_ADDR
-0005EAr 2  AD 13 88       lda RTC_RAM_DATA
-0005EDr 2  60             rts
-0005EEr 2               
-0005EEr 2               ; RtcWriteNVRAM — Write a byte to DS1511Y NVRAM
-0005EEr 2               ; Input: X = NVRAM address ($00-$FF), A = data byte
-0005EEr 2               ; Modifies: Flags
-0005EEr 2               RtcWriteNVRAMImpl:
-0005EEr 2  8E 10 88       stx RTC_RAM_ADDR
-0005F1r 2  8D 13 88       sta RTC_RAM_DATA
-0005F4r 2  60             rts
-0005F5r 2               
-0005F5r 2               ; === Hardware Probes ===
-0005F5r 2               
-0005F5r 2               ; ProbeRAM — Test for banked SRAM on IO 1 and IO 2
-0005F5r 2               ; Two-pattern read-back test ($A5 then $5A) on bank 0 data byte
-0005F5r 2               ; Sets HW_RAM_L / HW_RAM_H in HW_PRESENT on success
-0005F5r 2               ; Modifies: Flags, A
-0005F5r 2               ProbeRAM:
-0005F5r 2                 ; --- Probe RAM Low (IO 1) ---
-0005F5r 2  9C FF 83       stz RAM_BANK_L                ; Select bank 0
-0005F8r 2  AD 00 80       lda RAM_DATA_L                ; Save existing value
-0005FBr 2  48             pha
-0005FCr 2  A9 A5          lda #$A5
-0005FEr 2  8D 00 80       sta RAM_DATA_L
-000601r 2  CD 00 80       cmp RAM_DATA_L
-000604r 2  D0 12          bne @RAMLDone                 ; First pattern failed
-000606r 2  A9 5A          lda #$5A
-000608r 2  8D 00 80       sta RAM_DATA_L
-00060Br 2  CD 00 80       cmp RAM_DATA_L
-00060Er 2  D0 08          bne @RAMLDone                 ; Second pattern failed
-000610r 2  AD 0D 03       lda HW_PRESENT
-000613r 2  09 01          ora #HW_RAM_L
-000615r 2  8D 0D 03       sta HW_PRESENT
-000618r 2               @RAMLDone:
-000618r 2  68             pla
-000619r 2  8D 00 80       sta RAM_DATA_L                ; Restore original value
-00061Cr 2                 ; --- Probe RAM High (IO 2) ---
-00061Cr 2  9C FF 87       stz RAM_BANK_H                ; Select bank 0
-00061Fr 2  AD 00 84       lda RAM_DATA_H                ; Save existing value
-000622r 2  48             pha
-000623r 2  A9 A5          lda #$A5
-000625r 2  8D 00 84       sta RAM_DATA_H
-000628r 2  CD 00 84       cmp RAM_DATA_H
-00062Br 2  D0 12          bne @RAMHDone                 ; First pattern failed
-00062Dr 2  A9 5A          lda #$5A
-00062Fr 2  8D 00 84       sta RAM_DATA_H
-000632r 2  CD 00 84       cmp RAM_DATA_H
-000635r 2  D0 08          bne @RAMHDone                 ; Second pattern failed
-000637r 2  AD 0D 03       lda HW_PRESENT
-00063Ar 2  09 02          ora #HW_RAM_H
-00063Cr 2  8D 0D 03       sta HW_PRESENT
-00063Fr 2               @RAMHDone:
-00063Fr 2  68             pla
-000640r 2  8D 00 84       sta RAM_DATA_H                ; Restore original value
-000643r 2  60             rts
-000644r 2               
-000644r 2               ; ProbeVideo — TMS9918 VRAM read-back test
-000644r 2               ; Writes $A5 to VRAM address $0000, reads it back
-000644r 2               ; Sets HW_VID in HW_PRESENT on success
-000644r 2               ; Modifies: Flags, A
-000644r 2               ProbeVideo:
-000644r 2                 ; Write $A5 to VRAM $0000
-000644r 2  A9 00          lda #$00
-000646r 2  8D 01 9C       sta VC_REG                    ; Low byte of address
-000649r 2  A9 40          lda #$40                      ; High byte $00 OR $40 for write mode
-00064Br 2  8D 01 9C       sta VC_REG
-00064Er 2  A9 A5          lda #$A5
-000650r 2  8D 00 9C       sta VC_DATA                   ; Write data byte
-000653r 2                 ; Read back from VRAM $0000
-000653r 2  A9 00          lda #$00
-000655r 2  8D 01 9C       sta VC_REG                    ; Low byte of address
-000658r 2  A9 00          lda #$00                      ; High byte $00, bit 6 clear for read mode
-00065Ar 2  8D 01 9C       sta VC_REG
-00065Dr 2  AD 00 9C       lda VC_DATA                   ; Read data byte
-000660r 2  C9 A5          cmp #$A5
-000662r 2  D0 08          bne @ProbeVideoDone
-000664r 2  AD 0D 03       lda HW_PRESENT
-000667r 2  09 80          ora #HW_VID
-000669r 2  8D 0D 03       sta HW_PRESENT
-00066Cr 2               @ProbeVideoDone:
-00066Cr 2  60             rts
-00066Dr 2               
-00066Dr 2               ; ProbeGPIO — VIA DDR register read-back test
-00066Dr 2               ; Writes $AA to GPIO_DDRB, reads it back
-00066Dr 2               ; Sets HW_GPIO in HW_PRESENT on success
-00066Dr 2               ; Restores GPIO_DDRB to $00 afterward
-00066Dr 2               ; Modifies: Flags, A
-00066Dr 2               ProbeGPIO:
-00066Dr 2  A9 AA          lda #$AA
-00066Fr 2  8D 02 94       sta GPIO_DDRB
-000672r 2  CD 02 94       cmp GPIO_DDRB
-000675r 2  D0 08          bne @ProbeGPIODone
-000677r 2  AD 0D 03       lda HW_PRESENT
-00067Ar 2  09 20          ora #HW_GPIO
-00067Cr 2  8D 0D 03       sta HW_PRESENT
-00067Fr 2               @ProbeGPIODone:
-00067Fr 2  9C 02 94       stz GPIO_DDRB                 ; Restore to inputs (InitKBImpl will configure properly)
-000682r 2  60             rts
-000683r 2               
-000683r 2               ; ProbeSerial — R65C51 TDRE-after-reset test
-000683r 2               ; Issues programmatic reset, checks for TDRE (bit 4) set in status
-000683r 2               ; Sets HW_SC in HW_PRESENT on success
-000683r 2               ; Modifies: Flags, A
-000683r 2               ProbeSerial:
-000683r 2  9C 01 90       stz SC_RESET                  ; Programmatic reset (write any value)
-000686r 2  AD 01 90       lda SC_STATUS
-000689r 2  29 10          and #SC_STATUS_TDRE           ; TDRE should be set after reset
-00068Br 2  F0 08          beq @ProbeSerialDone
-00068Dr 2  AD 0D 03       lda HW_PRESENT
-000690r 2  09 10          ora #HW_SC
-000692r 2  8D 0D 03       sta HW_PRESENT
-000695r 2               @ProbeSerialDone:
-000695r 2  60             rts
-000696r 2               
-000696r 2               ; ProbeSID — Active oscillator test using voice 3
-000696r 2               ; Configures voice 3 noise waveform, brief delay, reads SID_OSC3
-000696r 2               ; Non-zero and non-$FF result indicates SID present
-000696r 2               ; Sets HW_SID in HW_PRESENT on success
-000696r 2               ; Modifies: Flags, A, X, Y
-000696r 2               ProbeSID:
-000696r 2                 ; Set voice 3 frequency to a fast value
-000696r 2  A9 FF          lda #$FF
-000698r 2  8D 0E 98       sta SID_V3_FREQ_LO
-00069Br 2  8D 0F 98       sta SID_V3_FREQ_HI
-00069Er 2                 ; Gate on + noise waveform
-00069Er 2  A9 81          lda #(SID_CTRL_GATE | SID_CTRL_NOISE)
-0006A0r 2  8D 12 98       sta SID_V3_CTRL
-0006A3r 2                 ; Brief software delay for oscillator to run
-0006A3r 2  A0 00          ldy #$00
-0006A5r 2               @ProbeSIDDelay:
-0006A5r 2  88             dey
-0006A6r 2  D0 FD          bne @ProbeSIDDelay            ; ~1280 cycles
-0006A8r 2                 ; Read oscillator 3 output
-0006A8r 2  AD 1B 98       lda SID_OSC3
-0006ABr 2  F0 0E          beq @ProbeSIDCleanup          ; Zero → no SID
-0006ADr 2  C9 FF          cmp #$FF
-0006AFr 2  F0 0A          beq @ProbeSIDCleanup          ; $FF → likely floating bus
-0006B1r 2                 ; SID detected
-0006B1r 2  48             pha
-0006B2r 2  AD 0D 03       lda HW_PRESENT
-0006B5r 2  09 40          ora #HW_SID
-0006B7r 2  8D 0D 03       sta HW_PRESENT
-0006BAr 2  68             pla
-0006BBr 2               @ProbeSIDCleanup:
-0006BBr 2                 ; Silence voice 3
-0006BBr 2  9C 12 98       stz SID_V3_CTRL
-0006BEr 2  9C 0E 98       stz SID_V3_FREQ_LO
-0006C1r 2  9C 0F 98       stz SID_V3_FREQ_HI
-0006C4r 2  60             rts
-0006C5r 2               
-0006C5r 2               ; ProbeRTC — DS1511Y NVRAM read-back test
-0006C5r 2               ; Writes test pattern to NVRAM address 0, reads it back
-0006C5r 2               ; Sets HW_RTC in HW_PRESENT on success
-0006C5r 2               ; Restores original NVRAM value afterward
-0006C5r 2               ; Modifies: Flags, A
-0006C5r 2               ProbeRTC:
-0006C5r 2  9C 10 88       stz RTC_RAM_ADDR              ; Select NVRAM address 0
-0006C8r 2  AD 13 88       lda RTC_RAM_DATA              ; Save existing value
-0006CBr 2  48             pha
-0006CCr 2  A9 A5          lda #$A5
-0006CEr 2  8D 13 88       sta RTC_RAM_DATA              ; Write test pattern
-0006D1r 2  CD 13 88       cmp RTC_RAM_DATA              ; Read back
-0006D4r 2  D0 08          bne @ProbeRTCDone
-0006D6r 2  AD 0D 03       lda HW_PRESENT
-0006D9r 2  09 04          ora #HW_RTC
-0006DBr 2  8D 0D 03       sta HW_PRESENT
-0006DEr 2               @ProbeRTCDone:
-0006DEr 2  68             pla
-0006DFr 2  8D 13 88       sta RTC_RAM_DATA              ; Restore original value
-0006E2r 2  60             rts
-0006E3r 2               
-0006E3r 2               ; === CompactFlash Storage Driver (True 8-bit IDE Mode) ===
-0006E3r 2               
-0006E3r 2               ; StWaitReady — Wait for CompactFlash to become ready
-0006E3r 2               ; Polls ST_STATUS until BSY=0 and RDY=1
-0006E3r 2               ; Output: Carry clear = ready, Carry set = error (ERR bit set)
-0006E3r 2               ; Modifies: Flags, A
-0006E3r 2               StWaitReadyImpl:
-0006E3r 2               @StWaitBsy:
-0006E3r 2  AD 07 8C       lda ST_STATUS
-0006E6r 2  29 80          and #ST_STATUS_BSY            ; Check BSY bit
-0006E8r 2  D0 F9          bne @StWaitBsy                ; Loop while busy
-0006EAr 2  AD 07 8C       lda ST_STATUS
-0006EDr 2  29 40          and #ST_STATUS_RDY            ; Check RDY bit
-0006EFr 2  F0 F2          beq @StWaitBsy                ; Loop until ready
-0006F1r 2  AD 07 8C       lda ST_STATUS
-0006F4r 2  29 01          and #ST_STATUS_ERR            ; Check ERR bit
-0006F6r 2  D0 02          bne @StWaitErr
-0006F8r 2  18             clc                           ; Ready, no error
-0006F9r 2  60             rts
-0006FAr 2               @StWaitErr:
-0006FAr 2  38             sec                           ; Error condition
-0006FBr 2  60             rts
-0006FCr 2               
-0006FCr 2               ; StWaitDrq — Wait for CompactFlash data request
-0006FCr 2               ; Polls ST_STATUS until BSY=0 and DRQ=1
-0006FCr 2               ; Output: Carry clear = DRQ active, Carry set = error
-0006FCr 2               ; Modifies: Flags, A
-0006FCr 2               StWaitDrq:
-0006FCr 2               @StDrqBsy:
-0006FCr 2  AD 07 8C       lda ST_STATUS
-0006FFr 2  29 80          and #ST_STATUS_BSY
-000701r 2  D0 F9          bne @StDrqBsy
-000703r 2  AD 07 8C       lda ST_STATUS
-000706r 2  29 01          and #ST_STATUS_ERR
-000708r 2  D0 09          bne @StDrqErr
-00070Ar 2  AD 07 8C       lda ST_STATUS
-00070Dr 2  29 08          and #ST_STATUS_DRQ
-00070Fr 2  F0 EB          beq @StDrqBsy
-000711r 2  18             clc
-000712r 2  60             rts
-000713r 2               @StDrqErr:
-000713r 2  38             sec
-000714r 2  60             rts
-000715r 2               
-000715r 2               ; StInit — Initialize CompactFlash for 8-bit data transfers
-000715r 2               ; Issues Set Features command with subcommand $01 (enable 8-bit I/O)
-000715r 2               ; Output: Carry clear = success, Carry set = error
-000715r 2               ; Modifies: Flags, A
-000715r 2               StInit:
-000715r 2  20 rr rr       jsr StWaitReady
-000718r 2  B0 0D          bcs @StInitDone
-00071Ar 2  A9 01          lda #ST_FEAT_8BIT             ; Feature: enable 8-bit data I/O
-00071Cr 2  8D 01 8C       sta ST_FEATURE
-00071Fr 2  A9 EF          lda #ST_CMD_SET_FEAT          ; Set Features command
-000721r 2  8D 07 8C       sta ST_CMD
-000724r 2  20 rr rr       jsr StWaitReady               ; Wait for command completion
-000727r 2               @StInitDone:
-000727r 2  60             rts
-000728r 2               
-000728r 2               ; StSetupLba — Set up LBA registers from CF_LBA zero page variables
-000728r 2               ; Also sets sector count to 1 and selects master drive in LBA mode
-000728r 2               ; Modifies: Flags, A
-000728r 2               StSetupLba:
-000728r 2  A9 01          lda #$01
-00072Ar 2  8D 02 8C       sta ST_SECT_CNT               ; Always 1 sector
-00072Dr 2  A5 26          lda CF_LBA
-00072Fr 2  8D 03 8C       sta ST_LBA_0                  ; LBA bits 0-7
-000732r 2  A5 27          lda CF_LBA + 1
-000734r 2  8D 04 8C       sta ST_LBA_1                  ; LBA bits 8-15
-000737r 2  A5 28          lda CF_LBA + 2
-000739r 2  8D 05 8C       sta ST_LBA_2                  ; LBA bits 16-23
-00073Cr 2  A5 29          lda CF_LBA + 3
-00073Er 2  29 0F          and #$0F                      ; Mask to 4 bits (LBA 24-27)
-000740r 2  09 E0          ora #ST_LBA3_MASTER           ; LBA mode, master drive
-000742r 2  8D 06 8C       sta ST_LBA_3
-000745r 2  60             rts
-000746r 2               
-000746r 2               ; StReadSector — Read one 512-byte sector from CompactFlash
-000746r 2               ; Input: CF_LBA ($26-$29) = LBA address, CF_BUF_PTR ($24-$25) = destination pointer
-000746r 2               ; Output: Carry clear = success, Carry set = error
-000746r 2               ;         CF_BUF_PTR advanced by 512 bytes on success
-000746r 2               ; Modifies: Flags, A, X, Y
-000746r 2               StReadSectorImpl:
-000746r 2  20 rr rr       jsr StWaitReady
-000749r 2  B0 1F          bcs @StReadDone
-00074Br 2  20 rr rr       jsr StSetupLba
-00074Er 2  A9 20          lda #ST_CMD_READ              ; Issue read command
-000750r 2  8D 07 8C       sta ST_CMD
-000753r 2  20 rr rr       jsr StWaitDrq                 ; Wait for data ready
-000756r 2  B0 12          bcs @StReadDone
-000758r 2                 ; Read 512 bytes: 2 pages of 256 bytes
-000758r 2  A0 00          ldy #$00
-00075Ar 2  A2 02          ldx #$02                      ; 2 pages
-00075Cr 2               @StReadPage:
-00075Cr 2  AD 00 8C       lda ST_DATA                   ; Read byte from CF
-00075Fr 2  91 24          sta (CF_BUF_PTR),y            ; Store to destination
-000761r 2  C8             iny
-000762r 2  D0 F8          bne @StReadPage               ; Loop for 256 bytes
-000764r 2  E6 25          inc CF_BUF_PTR + 1            ; Next page
-000766r 2  CA             dex
-000767r 2  D0 F3          bne @StReadPage
-000769r 2  18             clc                           ; Success
-00076Ar 2               @StReadDone:
-00076Ar 2  60             rts
-00076Br 2               
-00076Br 2               ; StWriteSector — Write one 512-byte sector to CompactFlash
-00076Br 2               ; Input: CF_LBA ($26-$29) = LBA address, CF_BUF_PTR ($24-$25) = source pointer
-00076Br 2               ; Output: Carry clear = success, Carry set = error
-00076Br 2               ;         CF_BUF_PTR advanced by 512 bytes on success
-00076Br 2               ; Modifies: Flags, A, X, Y
-00076Br 2               StWriteSectorImpl:
-00076Br 2  20 rr rr       jsr StWaitReady
-00076Er 2  B0 21          bcs @StWriteDone
-000770r 2  20 rr rr       jsr StSetupLba
-000773r 2  A9 30          lda #ST_CMD_WRITE             ; Issue write command
-000775r 2  8D 07 8C       sta ST_CMD
-000778r 2  20 rr rr       jsr StWaitDrq                 ; Wait for data request
-00077Br 2  B0 14          bcs @StWriteDone
-00077Dr 2                 ; Write 512 bytes: 2 pages of 256 bytes
-00077Dr 2  A0 00          ldy #$00
-00077Fr 2  A2 02          ldx #$02                      ; 2 pages
-000781r 2               @StWritePage:
-000781r 2  B1 24          lda (CF_BUF_PTR),y            ; Load from source
-000783r 2  8D 00 8C       sta ST_DATA                   ; Write byte to CF
-000786r 2  C8             iny
-000787r 2  D0 F8          bne @StWritePage              ; Loop for 256 bytes
-000789r 2  E6 25          inc CF_BUF_PTR + 1            ; Next page
-00078Br 2  CA             dex
-00078Cr 2  D0 F3          bne @StWritePage
-00078Er 2  20 rr rr       jsr StWaitReady               ; Wait for write to complete
-000791r 2               @StWriteDone:
-000791r 2  60             rts
-000792r 2               
-000792r 2               ; === Simple Custom Filesystem ===
-000792r 2               ; Directory at LBA 0: 16 entries x 32 bytes = 512 bytes
-000792r 2               ; Entry format:
-000792r 2               ;   $00-$07: 8-byte filename (space-padded)
-000792r 2               ;   $08-$0A: 3-byte extension (space-padded)
-000792r 2               ;   $0B:     flags (bit 0 = in use)
-000792r 2               ;   $0C-$0D: start sector (little-endian)
-000792r 2               ;   $0E-$0F: file size in bytes (little-endian)
-000792r 2               ;   $10-$1F: reserved (16 bytes)
-000792r 2               
-000792r 2               ; FsParseName — Parse null-terminated filename at STR_PTR into FS_FNAME_BUF
-000792r 2               ; Converts "NAME.EXT" into 8+3 space-padded format
-000792r 2               ; Input: STR_PTR ($02-$03) points to null-terminated filename
-000792r 2               ; Output: FS_FNAME_BUF filled with padded 8+3 name
-000792r 2               ; Modifies: Flags, A, X, Y
-000792r 2               FsParseName:
-000792r 2                 ; Fill FS_FNAME_BUF with spaces
-000792r 2  A9 20          lda #$20
-000794r 2  A2 0A          ldx #10
-000796r 2               @FsParseClr:
-000796r 2  9D 50 03       sta FS_FNAME_BUF,x
-000799r 2  CA             dex
-00079Ar 2  10 FA          bpl @FsParseClr
-00079Cr 2                 ; Copy name part (up to 8 chars, stop at '.' or null)
-00079Cr 2  A0 00          ldy #$00                      ; Source index
-00079Er 2  A2 00          ldx #$00                      ; Dest index (name portion)
-0007A0r 2               @FsParseName:
-0007A0r 2  B1 02          lda (STR_PTR),y
-0007A2r 2  F0 35          beq @FsParseDone              ; Null terminator — no extension
-0007A4r 2  C9 2E          cmp #'.'
-0007A6r 2  F0 15          beq @FsParseExt               ; Found dot — start extension
-0007A8r 2  E0 08          cpx #$08
-0007AAr 2  B0 0E          bcs @FsParseSkipName          ; Already 8 chars, skip extras
-0007ACr 2                 ; Convert lowercase to uppercase
-0007ACr 2  C9 61          cmp #'a'
-0007AEr 2  90 06          bcc @FsStoreNameChar
-0007B0r 2  C9 7B          cmp #'z' + 1
-0007B2r 2  B0 02          bcs @FsStoreNameChar
-0007B4r 2  29 DF          and #$DF                      ; Clear bit 5 to uppercase
-0007B6r 2               @FsStoreNameChar:
-0007B6r 2  9D 50 03       sta FS_FNAME_BUF,x
-0007B9r 2  E8             inx
-0007BAr 2               @FsParseSkipName:
-0007BAr 2  C8             iny
-0007BBr 2  80 E3          bra @FsParseName
-0007BDr 2               @FsParseExt:
-0007BDr 2  C8             iny                           ; Skip the dot
-0007BEr 2  A2 08          ldx #$08                      ; Extension starts at offset 8
-0007C0r 2               @FsParseExtLoop:
-0007C0r 2  B1 02          lda (STR_PTR),y
-0007C2r 2  F0 15          beq @FsParseDone              ; Null terminator
-0007C4r 2  E0 0B          cpx #$0B
-0007C6r 2  B0 11          bcs @FsParseDone              ; Max 3 ext chars
-0007C8r 2                 ; Convert lowercase to uppercase
-0007C8r 2  C9 61          cmp #'a'
-0007CAr 2  90 06          bcc @FsStoreExtChar
-0007CCr 2  C9 7B          cmp #'z' + 1
-0007CEr 2  B0 02          bcs @FsStoreExtChar
-0007D0r 2  29 DF          and #$DF
-0007D2r 2               @FsStoreExtChar:
-0007D2r 2  9D 50 03       sta FS_FNAME_BUF,x
-0007D5r 2  E8             inx
+000584r 2  AA             tax                           ; X = minutes
+000585r 2  AD 00 88       lda RTC_SEC
+000588r 2  20 rr rr       jsr BcdToBin
+00058Br 2  A8             tay                           ; Y = seconds
+00058Cr 2  68             pla                           ; A = hours
+00058Dr 2  60             rts
+00058Er 2               
+00058Er 2               ; RtcReadDate — Read current date from DS1511Y
+00058Er 2               ; Output: A = day of month (binary), X = month (binary), Y = year (binary)
+00058Er 2               ;         RTC_BUF_CENT = century (binary)
+00058Er 2               ; Modifies: Flags
+00058Er 2               RtcReadDateImpl:
+00058Er 2  AD 07 88       lda RTC_CENT
+000591r 2  20 rr rr       jsr BcdToBin
+000594r 2  8D 0B 03       sta RTC_BUF_CENT              ; Store century in buffer
+000597r 2  AD 05 88       lda RTC_MON
+00059Ar 2  20 rr rr       jsr BcdToBin
+00059Dr 2  AA             tax                           ; X = month
+00059Er 2  AD 06 88       lda RTC_YR
+0005A1r 2  20 rr rr       jsr BcdToBin
+0005A4r 2  A8             tay                           ; Y = year
+0005A5r 2  AD 04 88       lda RTC_DATE
+0005A8r 2  20 rr rr       jsr BcdToBin                  ; A = day of month
+0005ABr 2  60             rts
+0005ACr 2               
+0005ACr 2               ; RtcWriteTime — Set DS1511Y time
+0005ACr 2               ; Input: A = hours (binary), X = minutes (binary), Y = seconds (binary)
+0005ACr 2               ; Modifies: Flags, A, X
+0005ACr 2               RtcWriteTimeImpl:
+0005ACr 2  48             pha                           ; Save hours
+0005ADr 2  DA             phx                           ; Save minutes
+0005AEr 2  5A             phy                           ; Save seconds
+0005AFr 2                 ; Set TE bit to inhibit update transfers
+0005AFr 2  AD 0F 88       lda RTC_CTRL_B
+0005B2r 2  09 80          ora #RTC_CTRL_B_TE
+0005B4r 2  8D 0F 88       sta RTC_CTRL_B
+0005B7r 2                 ; Write seconds
+0005B7r 2  68             pla                           ; A = seconds
+0005B8r 2  20 rr rr       jsr BinToBcd
+0005BBr 2  8D 00 88       sta RTC_SEC
+0005BEr 2                 ; Write minutes
+0005BEr 2  68             pla                           ; A = minutes
+0005BFr 2  20 rr rr       jsr BinToBcd
+0005C2r 2  8D 01 88       sta RTC_MIN
+0005C5r 2                 ; Write hours
+0005C5r 2  68             pla                           ; A = hours
+0005C6r 2  20 rr rr       jsr BinToBcd
+0005C9r 2  8D 02 88       sta RTC_HR
+0005CCr 2                 ; Clear TE bit to resume updates
+0005CCr 2  AD 0F 88       lda RTC_CTRL_B
+0005CFr 2  29 7F          and #<~RTC_CTRL_B_TE
+0005D1r 2  8D 0F 88       sta RTC_CTRL_B
+0005D4r 2  60             rts
+0005D5r 2               
+0005D5r 2               ; RtcWriteDate — Set DS1511Y date
+0005D5r 2               ; Input: A = day of month (binary), X = month (binary), Y = year (binary)
+0005D5r 2               ;        RTC_BUF_CENT = century (binary)
+0005D5r 2               ; Modifies: Flags, A, X
+0005D5r 2               RtcWriteDateImpl:
+0005D5r 2  48             pha                           ; Save day
+0005D6r 2  DA             phx                           ; Save month
+0005D7r 2  5A             phy                           ; Save year
+0005D8r 2                 ; Set TE bit to inhibit update transfers
+0005D8r 2  AD 0F 88       lda RTC_CTRL_B
+0005DBr 2  09 80          ora #RTC_CTRL_B_TE
+0005DDr 2  8D 0F 88       sta RTC_CTRL_B
+0005E0r 2                 ; Write century
+0005E0r 2  AD 0B 03       lda RTC_BUF_CENT
+0005E3r 2  20 rr rr       jsr BinToBcd
+0005E6r 2  8D 07 88       sta RTC_CENT
+0005E9r 2                 ; Write year
+0005E9r 2  68             pla                           ; A = year
+0005EAr 2  20 rr rr       jsr BinToBcd
+0005EDr 2  8D 06 88       sta RTC_YR
+0005F0r 2                 ; Write month
+0005F0r 2  68             pla                           ; A = month
+0005F1r 2  20 rr rr       jsr BinToBcd
+0005F4r 2  8D 05 88       sta RTC_MON
+0005F7r 2                 ; Write day
+0005F7r 2  68             pla                           ; A = day
+0005F8r 2  20 rr rr       jsr BinToBcd
+0005FBr 2  8D 04 88       sta RTC_DATE
+0005FEr 2                 ; Clear TE bit to resume updates
+0005FEr 2  AD 0F 88       lda RTC_CTRL_B
+000601r 2  29 7F          and #<~RTC_CTRL_B_TE
+000603r 2  8D 0F 88       sta RTC_CTRL_B
+000606r 2  60             rts
+000607r 2               
+000607r 2               ; RtcReadNVRAM — Read a byte from DS1511Y NVRAM
+000607r 2               ; Input: X = NVRAM address ($00-$FF)
+000607r 2               ; Output: A = data byte
+000607r 2               ; Modifies: Flags
+000607r 2               RtcReadNVRAMImpl:
+000607r 2  8E 10 88       stx RTC_RAM_ADDR
+00060Ar 2  AD 13 88       lda RTC_RAM_DATA
+00060Dr 2  60             rts
+00060Er 2               
+00060Er 2               ; RtcWriteNVRAM — Write a byte to DS1511Y NVRAM
+00060Er 2               ; Input: X = NVRAM address ($00-$FF), A = data byte
+00060Er 2               ; Modifies: Flags
+00060Er 2               RtcWriteNVRAMImpl:
+00060Er 2  8E 10 88       stx RTC_RAM_ADDR
+000611r 2  8D 13 88       sta RTC_RAM_DATA
+000614r 2  60             rts
+000615r 2               
+000615r 2               ; === Hardware Probes ===
+000615r 2               
+000615r 2               ; ProbeRAM — Test for banked SRAM on IO 1 and IO 2
+000615r 2               ; Two-pattern read-back test ($A5 then $5A) on bank 0 data byte
+000615r 2               ; Sets HW_RAM_L / HW_RAM_H in HW_PRESENT on success
+000615r 2               ; Modifies: Flags, A
+000615r 2               ProbeRAM:
+000615r 2                 ; --- Probe RAM Low (IO 1) ---
+000615r 2  9C FF 83       stz RAM_BANK_L                ; Select bank 0
+000618r 2  AD 00 80       lda RAM_DATA_L                ; Save existing value
+00061Br 2  48             pha
+00061Cr 2  A9 A5          lda #$A5
+00061Er 2  8D 00 80       sta RAM_DATA_L
+000621r 2  CD 00 80       cmp RAM_DATA_L
+000624r 2  D0 12          bne @RAMLDone                 ; First pattern failed
+000626r 2  A9 5A          lda #$5A
+000628r 2  8D 00 80       sta RAM_DATA_L
+00062Br 2  CD 00 80       cmp RAM_DATA_L
+00062Er 2  D0 08          bne @RAMLDone                 ; Second pattern failed
+000630r 2  AD 0D 03       lda HW_PRESENT
+000633r 2  09 01          ora #HW_RAM_L
+000635r 2  8D 0D 03       sta HW_PRESENT
+000638r 2               @RAMLDone:
+000638r 2  68             pla
+000639r 2  8D 00 80       sta RAM_DATA_L                ; Restore original value
+00063Cr 2                 ; --- Probe RAM High (IO 2) ---
+00063Cr 2  9C FF 87       stz RAM_BANK_H                ; Select bank 0
+00063Fr 2  AD 00 84       lda RAM_DATA_H                ; Save existing value
+000642r 2  48             pha
+000643r 2  A9 A5          lda #$A5
+000645r 2  8D 00 84       sta RAM_DATA_H
+000648r 2  CD 00 84       cmp RAM_DATA_H
+00064Br 2  D0 12          bne @RAMHDone                 ; First pattern failed
+00064Dr 2  A9 5A          lda #$5A
+00064Fr 2  8D 00 84       sta RAM_DATA_H
+000652r 2  CD 00 84       cmp RAM_DATA_H
+000655r 2  D0 08          bne @RAMHDone                 ; Second pattern failed
+000657r 2  AD 0D 03       lda HW_PRESENT
+00065Ar 2  09 02          ora #HW_RAM_H
+00065Cr 2  8D 0D 03       sta HW_PRESENT
+00065Fr 2               @RAMHDone:
+00065Fr 2  68             pla
+000660r 2  8D 00 84       sta RAM_DATA_H                ; Restore original value
+000663r 2  60             rts
+000664r 2               
+000664r 2               ; ProbeVideo — TMS9918 VRAM read-back test
+000664r 2               ; Writes $A5 to VRAM address $0000, reads it back
+000664r 2               ; Sets HW_VID in HW_PRESENT on success
+000664r 2               ; Modifies: Flags, A
+000664r 2               ProbeVideo:
+000664r 2                 ; Write $A5 to VRAM $0000
+000664r 2  A9 00          lda #$00
+000666r 2  8D 01 9C       sta VC_REG                    ; Low byte of address
+000669r 2  A9 40          lda #$40                      ; High byte $00 OR $40 for write mode
+00066Br 2  8D 01 9C       sta VC_REG
+00066Er 2  A9 A5          lda #$A5
+000670r 2  8D 00 9C       sta VC_DATA                   ; Write data byte
+000673r 2                 ; Read back from VRAM $0000
+000673r 2  A9 00          lda #$00
+000675r 2  8D 01 9C       sta VC_REG                    ; Low byte of address
+000678r 2  A9 00          lda #$00                      ; High byte $00, bit 6 clear for read mode
+00067Ar 2  8D 01 9C       sta VC_REG
+00067Dr 2  AD 00 9C       lda VC_DATA                   ; Read data byte
+000680r 2  C9 A5          cmp #$A5
+000682r 2  D0 08          bne @ProbeVideoDone
+000684r 2  AD 0D 03       lda HW_PRESENT
+000687r 2  09 80          ora #HW_VID
+000689r 2  8D 0D 03       sta HW_PRESENT
+00068Cr 2               @ProbeVideoDone:
+00068Cr 2  60             rts
+00068Dr 2               
+00068Dr 2               ; ProbeGPIO — VIA DDR register read-back test
+00068Dr 2               ; Writes $AA to GPIO_DDRB, reads it back
+00068Dr 2               ; Sets HW_GPIO in HW_PRESENT on success
+00068Dr 2               ; Restores GPIO_DDRB to $00 afterward
+00068Dr 2               ; Modifies: Flags, A
+00068Dr 2               ProbeGPIO:
+00068Dr 2  A9 AA          lda #$AA
+00068Fr 2  8D 02 94       sta GPIO_DDRB
+000692r 2  CD 02 94       cmp GPIO_DDRB
+000695r 2  D0 08          bne @ProbeGPIODone
+000697r 2  AD 0D 03       lda HW_PRESENT
+00069Ar 2  09 20          ora #HW_GPIO
+00069Cr 2  8D 0D 03       sta HW_PRESENT
+00069Fr 2               @ProbeGPIODone:
+00069Fr 2  9C 02 94       stz GPIO_DDRB                 ; Restore to inputs (InitKBImpl will configure properly)
+0006A2r 2  60             rts
+0006A3r 2               
+0006A3r 2               ; ProbeSerial — R65C51 TDRE-after-reset test
+0006A3r 2               ; Issues programmatic reset, checks for TDRE (bit 4) set in status
+0006A3r 2               ; Sets HW_SC in HW_PRESENT on success
+0006A3r 2               ; Modifies: Flags, A
+0006A3r 2               ProbeSerial:
+0006A3r 2  9C 01 90       stz SC_RESET                  ; Programmatic reset (write any value)
+0006A6r 2  AD 01 90       lda SC_STATUS
+0006A9r 2  29 10          and #SC_STATUS_TDRE           ; TDRE should be set after reset
+0006ABr 2  F0 08          beq @ProbeSerialDone
+0006ADr 2  AD 0D 03       lda HW_PRESENT
+0006B0r 2  09 10          ora #HW_SC
+0006B2r 2  8D 0D 03       sta HW_PRESENT
+0006B5r 2               @ProbeSerialDone:
+0006B5r 2  60             rts
+0006B6r 2               
+0006B6r 2               ; ProbeSID — Active oscillator test using voice 3
+0006B6r 2               ; Configures voice 3 noise waveform, brief delay, reads SID_OSC3
+0006B6r 2               ; Non-zero and non-$FF result indicates SID present
+0006B6r 2               ; Sets HW_SID in HW_PRESENT on success
+0006B6r 2               ; Modifies: Flags, A, X, Y
+0006B6r 2               ProbeSID:
+0006B6r 2                 ; Set voice 3 frequency to a fast value
+0006B6r 2  A9 FF          lda #$FF
+0006B8r 2  8D 0E 98       sta SID_V3_FREQ_LO
+0006BBr 2  8D 0F 98       sta SID_V3_FREQ_HI
+0006BEr 2                 ; Gate on + noise waveform
+0006BEr 2  A9 81          lda #(SID_CTRL_GATE | SID_CTRL_NOISE)
+0006C0r 2  8D 12 98       sta SID_V3_CTRL
+0006C3r 2                 ; Brief software delay for oscillator to run
+0006C3r 2  A0 00          ldy #$00
+0006C5r 2               @ProbeSIDDelay:
+0006C5r 2  88             dey
+0006C6r 2  D0 FD          bne @ProbeSIDDelay            ; ~1280 cycles
+0006C8r 2                 ; Read oscillator 3 output
+0006C8r 2  AD 1B 98       lda SID_OSC3
+0006CBr 2  F0 0E          beq @ProbeSIDCleanup          ; Zero → no SID
+0006CDr 2  C9 FF          cmp #$FF
+0006CFr 2  F0 0A          beq @ProbeSIDCleanup          ; $FF → likely floating bus
+0006D1r 2                 ; SID detected
+0006D1r 2  48             pha
+0006D2r 2  AD 0D 03       lda HW_PRESENT
+0006D5r 2  09 40          ora #HW_SID
+0006D7r 2  8D 0D 03       sta HW_PRESENT
+0006DAr 2  68             pla
+0006DBr 2               @ProbeSIDCleanup:
+0006DBr 2                 ; Silence voice 3
+0006DBr 2  9C 12 98       stz SID_V3_CTRL
+0006DEr 2  9C 0E 98       stz SID_V3_FREQ_LO
+0006E1r 2  9C 0F 98       stz SID_V3_FREQ_HI
+0006E4r 2  60             rts
+0006E5r 2               
+0006E5r 2               ; ProbeRTC — DS1511Y NVRAM read-back test
+0006E5r 2               ; Writes test pattern to NVRAM address 0, reads it back
+0006E5r 2               ; Sets HW_RTC in HW_PRESENT on success
+0006E5r 2               ; Restores original NVRAM value afterward
+0006E5r 2               ; Modifies: Flags, A
+0006E5r 2               ProbeRTC:
+0006E5r 2  9C 10 88       stz RTC_RAM_ADDR              ; Select NVRAM address 0
+0006E8r 2  AD 13 88       lda RTC_RAM_DATA              ; Save existing value
+0006EBr 2  48             pha
+0006ECr 2  A9 A5          lda #$A5
+0006EEr 2  8D 13 88       sta RTC_RAM_DATA              ; Write test pattern
+0006F1r 2  CD 13 88       cmp RTC_RAM_DATA              ; Read back
+0006F4r 2  D0 08          bne @ProbeRTCDone
+0006F6r 2  AD 0D 03       lda HW_PRESENT
+0006F9r 2  09 04          ora #HW_RTC
+0006FBr 2  8D 0D 03       sta HW_PRESENT
+0006FEr 2               @ProbeRTCDone:
+0006FEr 2  68             pla
+0006FFr 2  8D 13 88       sta RTC_RAM_DATA              ; Restore original value
+000702r 2  60             rts
+000703r 2               
+000703r 2               ; === CompactFlash Storage Driver (True 8-bit IDE Mode) ===
+000703r 2               
+000703r 2               ; StWaitReady — Wait for CompactFlash to become ready
+000703r 2               ; Polls ST_STATUS until BSY=0 and RDY=1, with X/Y timeout (~65536 iterations)
+000703r 2               ; Output: Carry clear = ready, Carry set = error or timeout
+000703r 2               ; Modifies: Flags, A, X, Y
+000703r 2               StWaitReadyImpl:
+000703r 2  A2 00          ldx #$00                      ; Outer timeout counter (256 × 256 = 65536 iterations)
+000705r 2  A0 00          ldy #$00
+000707r 2               @StWaitBsy:
+000707r 2  AD 07 8C       lda ST_STATUS
+00070Ar 2  29 80          and #ST_STATUS_BSY            ; Check BSY bit
+00070Cr 2  F0 08          beq @StCheckRdy               ; BSY clear — check RDY
+00070Er 2  88             dey
+00070Fr 2  D0 F6          bne @StWaitBsy
+000711r 2  CA             dex
+000712r 2  D0 F3          bne @StWaitBsy
+000714r 2  38             sec                           ; Timed out — no device
+000715r 2  60             rts
+000716r 2               @StCheckRdy:
+000716r 2  AD 07 8C       lda ST_STATUS
+000719r 2  29 40          and #ST_STATUS_RDY            ; Check RDY bit
+00071Br 2  D0 08          bne @StCheckErr               ; RDY set — check for errors
+00071Dr 2  88             dey
+00071Er 2  D0 E7          bne @StWaitBsy
+000720r 2  CA             dex
+000721r 2  D0 E4          bne @StWaitBsy
+000723r 2  38             sec                           ; Timed out
+000724r 2  60             rts
+000725r 2               @StCheckErr:
+000725r 2  AD 07 8C       lda ST_STATUS
+000728r 2  29 01          and #ST_STATUS_ERR            ; Check ERR bit
+00072Ar 2  D0 02          bne @StWaitErr
+00072Cr 2  18             clc                           ; Ready, no error
+00072Dr 2  60             rts
+00072Er 2               @StWaitErr:
+00072Er 2  38             sec                           ; Error condition
+00072Fr 2  60             rts
+000730r 2               
+000730r 2               ; StWaitDrq — Wait for CompactFlash data request
+000730r 2               ; Polls ST_STATUS until BSY=0 and DRQ=1, with X/Y timeout (~65536 iterations)
+000730r 2               ; Output: Carry clear = DRQ active, Carry set = error or timeout
+000730r 2               ; Modifies: Flags, A, X, Y
+000730r 2               StWaitDrq:
+000730r 2  A2 00          ldx #$00                      ; Outer timeout counter (256 × 256 = 65536 iterations)
+000732r 2  A0 00          ldy #$00
+000734r 2               @StDrqBsy:
+000734r 2  AD 07 8C       lda ST_STATUS
+000737r 2  29 80          and #ST_STATUS_BSY
+000739r 2  F0 08          beq @StDrqCheckDrq            ; BSY clear — check DRQ
+00073Br 2  88             dey
+00073Cr 2  D0 F6          bne @StDrqBsy
+00073Er 2  CA             dex
+00073Fr 2  D0 F3          bne @StDrqBsy
+000741r 2  38             sec                           ; Timed out — no device
+000742r 2  60             rts
+000743r 2               @StDrqCheckDrq:
+000743r 2  AD 07 8C       lda ST_STATUS
+000746r 2  29 01          and #ST_STATUS_ERR
+000748r 2  D0 11          bne @StDrqErr
+00074Ar 2  AD 07 8C       lda ST_STATUS
+00074Dr 2  29 08          and #ST_STATUS_DRQ
+00074Fr 2  D0 08          bne @StDrqOk                  ; DRQ set — ready for data
+000751r 2  88             dey
+000752r 2  D0 E0          bne @StDrqBsy
+000754r 2  CA             dex
+000755r 2  D0 DD          bne @StDrqBsy
+000757r 2  38             sec                           ; Timed out
+000758r 2  60             rts
+000759r 2               @StDrqOk:
+000759r 2  18             clc
+00075Ar 2  60             rts
+00075Br 2               @StDrqErr:
+00075Br 2  38             sec
+00075Cr 2  60             rts
+00075Dr 2               
+00075Dr 2               ; StInit — Initialize CompactFlash for 8-bit data transfers
+00075Dr 2               ; Issues Set Features command with subcommand $01 (enable 8-bit I/O)
+00075Dr 2               ; Output: Carry clear = success, Carry set = error
+00075Dr 2               ; Modifies: Flags, A
+00075Dr 2               StInit:
+00075Dr 2  20 rr rr       jsr StWaitReady
+000760r 2  B0 15          bcs @StInitDone               ; Timeout or error — CF not present
+000762r 2                 ; CF responded — set presence flag
+000762r 2  AD 0D 03       lda HW_PRESENT
+000765r 2  09 08          ora #HW_CF
+000767r 2  8D 0D 03       sta HW_PRESENT
+00076Ar 2  A9 01          lda #ST_FEAT_8BIT             ; Feature: enable 8-bit data I/O
+00076Cr 2  8D 01 8C       sta ST_FEATURE
+00076Fr 2  A9 EF          lda #ST_CMD_SET_FEAT          ; Set Features command
+000771r 2  8D 07 8C       sta ST_CMD
+000774r 2  20 rr rr       jsr StWaitReady               ; Wait for command completion
+000777r 2               @StInitDone:
+000777r 2  60             rts
+000778r 2               
+000778r 2               ; StSetupLba — Set up LBA registers from CF_LBA zero page variables
+000778r 2               ; Also sets sector count to 1 and selects master drive in LBA mode
+000778r 2               ; Modifies: Flags, A
+000778r 2               StSetupLba:
+000778r 2  A9 01          lda #$01
+00077Ar 2  8D 02 8C       sta ST_SECT_CNT               ; Always 1 sector
+00077Dr 2  A5 26          lda CF_LBA
+00077Fr 2  8D 03 8C       sta ST_LBA_0                  ; LBA bits 0-7
+000782r 2  A5 27          lda CF_LBA + 1
+000784r 2  8D 04 8C       sta ST_LBA_1                  ; LBA bits 8-15
+000787r 2  A5 28          lda CF_LBA + 2
+000789r 2  8D 05 8C       sta ST_LBA_2                  ; LBA bits 16-23
+00078Cr 2  A5 29          lda CF_LBA + 3
+00078Er 2  29 0F          and #$0F                      ; Mask to 4 bits (LBA 24-27)
+000790r 2  09 E0          ora #ST_LBA3_MASTER           ; LBA mode, master drive
+000792r 2  8D 06 8C       sta ST_LBA_3
+000795r 2  60             rts
+000796r 2               
+000796r 2               ; StReadSector — Read one 512-byte sector from CompactFlash
+000796r 2               ; Input: CF_LBA ($26-$29) = LBA address, CF_BUF_PTR ($24-$25) = destination pointer
+000796r 2               ; Output: Carry clear = success, Carry set = error
+000796r 2               ;         CF_BUF_PTR advanced by 512 bytes on success
+000796r 2               ; Modifies: Flags, A, X, Y
+000796r 2               StReadSectorImpl:
+000796r 2  20 rr rr       jsr StWaitReady
+000799r 2  B0 1F          bcs @StReadDone
+00079Br 2  20 rr rr       jsr StSetupLba
+00079Er 2  A9 20          lda #ST_CMD_READ              ; Issue read command
+0007A0r 2  8D 07 8C       sta ST_CMD
+0007A3r 2  20 rr rr       jsr StWaitDrq                 ; Wait for data ready
+0007A6r 2  B0 12          bcs @StReadDone
+0007A8r 2                 ; Read 512 bytes: 2 pages of 256 bytes
+0007A8r 2  A0 00          ldy #$00
+0007AAr 2  A2 02          ldx #$02                      ; 2 pages
+0007ACr 2               @StReadPage:
+0007ACr 2  AD 00 8C       lda ST_DATA                   ; Read byte from CF
+0007AFr 2  91 24          sta (CF_BUF_PTR),y            ; Store to destination
+0007B1r 2  C8             iny
+0007B2r 2  D0 F8          bne @StReadPage               ; Loop for 256 bytes
+0007B4r 2  E6 25          inc CF_BUF_PTR + 1            ; Next page
+0007B6r 2  CA             dex
+0007B7r 2  D0 F3          bne @StReadPage
+0007B9r 2  18             clc                           ; Success
+0007BAr 2               @StReadDone:
+0007BAr 2  60             rts
+0007BBr 2               
+0007BBr 2               ; StWriteSector — Write one 512-byte sector to CompactFlash
+0007BBr 2               ; Input: CF_LBA ($26-$29) = LBA address, CF_BUF_PTR ($24-$25) = source pointer
+0007BBr 2               ; Output: Carry clear = success, Carry set = error
+0007BBr 2               ;         CF_BUF_PTR advanced by 512 bytes on success
+0007BBr 2               ; Modifies: Flags, A, X, Y
+0007BBr 2               StWriteSectorImpl:
+0007BBr 2  20 rr rr       jsr StWaitReady
+0007BEr 2  B0 21          bcs @StWriteDone
+0007C0r 2  20 rr rr       jsr StSetupLba
+0007C3r 2  A9 30          lda #ST_CMD_WRITE             ; Issue write command
+0007C5r 2  8D 07 8C       sta ST_CMD
+0007C8r 2  20 rr rr       jsr StWaitDrq                 ; Wait for data request
+0007CBr 2  B0 14          bcs @StWriteDone
+0007CDr 2                 ; Write 512 bytes: 2 pages of 256 bytes
+0007CDr 2  A0 00          ldy #$00
+0007CFr 2  A2 02          ldx #$02                      ; 2 pages
+0007D1r 2               @StWritePage:
+0007D1r 2  B1 24          lda (CF_BUF_PTR),y            ; Load from source
+0007D3r 2  8D 00 8C       sta ST_DATA                   ; Write byte to CF
 0007D6r 2  C8             iny
-0007D7r 2  80 E7          bra @FsParseExtLoop
-0007D9r 2               @FsParseDone:
-0007D9r 2  60             rts
-0007DAr 2               
-0007DAr 2               ; FsReadDir — Read directory sector (LBA 0) into FS_SECTOR_BUF
-0007DAr 2               ; Output: Carry clear = success, Carry set = error
-0007DAr 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
-0007DAr 2               FsReadDir:
-0007DAr 2  64 26          stz CF_LBA                    ; LBA = 0 (directory sector)
-0007DCr 2  64 27          stz CF_LBA + 1
-0007DEr 2  64 28          stz CF_LBA + 2
-0007E0r 2  64 29          stz CF_LBA + 3
-0007E2r 2  A9 00          lda #<FS_SECTOR_BUF
-0007E4r 2  85 24          sta CF_BUF_PTR
-0007E6r 2  A9 06          lda #>FS_SECTOR_BUF
-0007E8r 2  85 25          sta CF_BUF_PTR + 1
-0007EAr 2  4C rr rr       jmp StReadSector
-0007EDr 2               
-0007EDr 2               ; FsWriteDir — Write directory sector from FS_SECTOR_BUF to LBA 0
-0007EDr 2               ; Output: Carry clear = success, Carry set = error
-0007EDr 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
-0007EDr 2               FsWriteDir:
-0007EDr 2  64 26          stz CF_LBA
-0007EFr 2  64 27          stz CF_LBA + 1
-0007F1r 2  64 28          stz CF_LBA + 2
-0007F3r 2  64 29          stz CF_LBA + 3
-0007F5r 2  A9 00          lda #<FS_SECTOR_BUF
-0007F7r 2  85 24          sta CF_BUF_PTR
-0007F9r 2  A9 06          lda #>FS_SECTOR_BUF
-0007FBr 2  85 25          sta CF_BUF_PTR + 1
-0007FDr 2  4C rr rr       jmp StWriteSector
-000800r 2               
-000800r 2               ; FsFindFile — Search directory for filename in FS_FNAME_BUF
-000800r 2               ; Must call FsReadDir first to load directory into FS_SECTOR_BUF
-000800r 2               ; Output: Carry clear = found, X = entry index (0-15), CF_BUF_PTR points to entry
-000800r 2               ;         Carry set = not found
-000800r 2               ; Modifies: Flags, A, X, Y, CF_BUF_PTR
-000800r 2               FsFindFile:
-000800r 2  A9 00          lda #<FS_SECTOR_BUF
-000802r 2  85 24          sta CF_BUF_PTR
-000804r 2  A9 06          lda #>FS_SECTOR_BUF
-000806r 2  85 25          sta CF_BUF_PTR + 1
-000808r 2  A2 00          ldx #$00                      ; Entry index
-00080Ar 2               @FsFindLoop:
-00080Ar 2                 ; Check if entry is in use
-00080Ar 2  A0 0B          ldy #FS_ENTRY_FLAGS
-00080Cr 2  B1 24          lda (CF_BUF_PTR),y
-00080Er 2  29 01          and #FS_FLAG_USED
-000810r 2  F0 13          beq @FsFindNext               ; Skip unused entries
-000812r 2                 ; Compare 11-byte filename
-000812r 2  A0 00          ldy #$00
-000814r 2               @FsFindCmp:
-000814r 2  B1 24          lda (CF_BUF_PTR),y
-000816r 2  D9 50 03       cmp FS_FNAME_BUF,y
-000819r 2  D0 0A          bne @FsFindNext               ; Mismatch
-00081Br 2  C8             iny
-00081Cr 2  C0 0B          cpy #11
-00081Er 2  D0 F4          bne @FsFindCmp
-000820r 2                 ; Match found
-000820r 2  8E 4D 03       stx FS_DIR_IDX
-000823r 2  18             clc
-000824r 2  60             rts
-000825r 2               @FsFindNext:
-000825r 2                 ; Advance CF_BUF_PTR by 32 (FS_ENTRY_SIZE)
-000825r 2  A5 24          lda CF_BUF_PTR
-000827r 2  18             clc
-000828r 2  69 20          adc #FS_ENTRY_SIZE
-00082Ar 2  85 24          sta CF_BUF_PTR
-00082Cr 2  90 02          bcc @FsFindNoCarry
-00082Er 2  E6 25          inc CF_BUF_PTR + 1
-000830r 2               @FsFindNoCarry:
-000830r 2  E8             inx
-000831r 2  E0 10          cpx #FS_MAX_FILES
-000833r 2  D0 D5          bne @FsFindLoop
-000835r 2  38             sec                           ; Not found
-000836r 2  60             rts
-000837r 2               
-000837r 2               ; FsFindFree — Find first free directory entry
-000837r 2               ; Must call FsReadDir first
-000837r 2               ; Output: Carry clear = found, X = entry index, CF_BUF_PTR points to entry
-000837r 2               ;         Carry set = directory full
-000837r 2               ; Modifies: Flags, A, X, Y, CF_BUF_PTR
-000837r 2               FsFindFree:
-000837r 2  A9 00          lda #<FS_SECTOR_BUF
-000839r 2  85 24          sta CF_BUF_PTR
-00083Br 2  A9 06          lda #>FS_SECTOR_BUF
-00083Dr 2  85 25          sta CF_BUF_PTR + 1
-00083Fr 2  A2 00          ldx #$00
-000841r 2               @FsFreeLoop:
-000841r 2  A0 0B          ldy #FS_ENTRY_FLAGS
-000843r 2  B1 24          lda (CF_BUF_PTR),y
-000845r 2  29 01          and #FS_FLAG_USED
-000847r 2  F0 12          beq @FsFreeFound              ; Found unused entry
-000849r 2                 ; Advance by 32
-000849r 2  A5 24          lda CF_BUF_PTR
-00084Br 2  18             clc
-00084Cr 2  69 20          adc #FS_ENTRY_SIZE
-00084Er 2  85 24          sta CF_BUF_PTR
-000850r 2  90 02          bcc @FsFreeNoCarry
-000852r 2  E6 25          inc CF_BUF_PTR + 1
-000854r 2               @FsFreeNoCarry:
-000854r 2  E8             inx
-000855r 2  E0 10          cpx #FS_MAX_FILES
-000857r 2  D0 E8          bne @FsFreeLoop
-000859r 2  38             sec                           ; Directory full
-00085Ar 2  60             rts
-00085Br 2               @FsFreeFound:
-00085Br 2  8E 4D 03       stx FS_DIR_IDX
-00085Er 2  18             clc
-00085Fr 2  60             rts
-000860r 2               
-000860r 2               ; FsCalcNextSec — Calculate next free sector by scanning all directory entries
-000860r 2               ; Must call FsReadDir first
-000860r 2               ; Output: FS_NEXT_SEC = first free sector after all used files
-000860r 2               ; Modifies: Flags, A, X, Y
-000860r 2               FsCalcNextSec:
-000860r 2  A9 01          lda #<FS_DATA_START           ; Start with first data sector
-000862r 2  8D 4E 03       sta FS_NEXT_SEC
-000865r 2  A9 00          lda #>FS_DATA_START
-000867r 2  8D 4F 03       sta FS_NEXT_SEC + 1
-00086Ar 2                 ; Scan all entries to find highest used sector + file sector count
-00086Ar 2  A9 00          lda #<FS_SECTOR_BUF
-00086Cr 2  85 24          sta CF_BUF_PTR
-00086Er 2  A9 06          lda #>FS_SECTOR_BUF
-000870r 2  85 25          sta CF_BUF_PTR + 1
-000872r 2  A2 00          ldx #$00
-000874r 2               @FsCalcLoop:
-000874r 2  A0 0B          ldy #FS_ENTRY_FLAGS
-000876r 2  B1 24          lda (CF_BUF_PTR),y
-000878r 2  29 01          and #FS_FLAG_USED
-00087Ar 2  F0 51          beq @FsCalcNext               ; Skip unused
-00087Cr 2                 ; Get start sector + ceil(size/512)
-00087Cr 2  A0 0C          ldy #FS_ENTRY_START
-00087Er 2  B1 24          lda (CF_BUF_PTR),y
-000880r 2  8D 48 03       sta FS_START_SEC
-000883r 2  C8             iny
-000884r 2  B1 24          lda (CF_BUF_PTR),y
-000886r 2  8D 49 03       sta FS_START_SEC + 1
-000889r 2                 ; Get file size
-000889r 2  A0 0E          ldy #FS_ENTRY_FSIZE
-00088Br 2  B1 24          lda (CF_BUF_PTR),y
-00088Dr 2  8D 4A 03       sta FS_FILE_SIZE
-000890r 2  C8             iny
-000891r 2  B1 24          lda (CF_BUF_PTR),y
-000893r 2  8D 4B 03       sta FS_FILE_SIZE + 1
-000896r 2                 ; Calculate sectors used = (size + 511) / 512 = (size + 511) >> 9
-000896r 2                 ; = (size_hi + 1) if size_lo > 0, else size_hi / 2... simplify:
-000896r 2                 ; sectors = (size >> 9) rounded up = high_byte >> 1, plus 1 if any remainder
-000896r 2  AD 4B 03       lda FS_FILE_SIZE + 1          ; High byte of size
-000899r 2  4A             lsr a                         ; Divide by 2 (each sector = 512 = 2 pages)
-00089Ar 2  8D 4C 03       sta FS_SEC_COUNT
-00089Dr 2                 ; Check if there's a remainder (low byte != 0 or high byte bit 0 was set)
-00089Dr 2  AD 4B 03       lda FS_FILE_SIZE + 1
-0008A0r 2  29 01          and #$01                      ; Was high byte odd?
-0008A2r 2  D0 05          bne @FsCalcRound
-0008A4r 2  AD 4A 03       lda FS_FILE_SIZE              ; Low byte non-zero?
-0008A7r 2  F0 03          beq @FsCalcNoRound
-0008A9r 2               @FsCalcRound:
-0008A9r 2  EE 4C 03       inc FS_SEC_COUNT              ; Round up
-0008ACr 2               @FsCalcNoRound:
-0008ACr 2                 ; End sector = start + sector count
-0008ACr 2  AD 48 03       lda FS_START_SEC
-0008AFr 2  18             clc
-0008B0r 2  6D 4C 03       adc FS_SEC_COUNT
-0008B3r 2  48             pha
-0008B4r 2  AD 49 03       lda FS_START_SEC + 1
-0008B7r 2  69 00          adc #$00
-0008B9r 2  AA             tax                           ; X = end sector high
-0008BAr 2  68             pla                           ; A = end sector low
-0008BBr 2                 ; Compare with FS_NEXT_SEC — keep the larger value
-0008BBr 2  EC 4F 03       cpx FS_NEXT_SEC + 1
-0008BEr 2  90 0D          bcc @FsCalcNext               ; End < FS_NEXT_SEC, skip
-0008C0r 2  D0 05          bne @FsCalcUpdate             ; End high > FS_NEXT_SEC high, update
-0008C2r 2  CD 4E 03       cmp FS_NEXT_SEC
-0008C5r 2  90 06          bcc @FsCalcNext               ; End low < FS_NEXT_SEC low
-0008C7r 2               @FsCalcUpdate:
-0008C7r 2  8D 4E 03       sta FS_NEXT_SEC
-0008CAr 2  8E 4F 03       stx FS_NEXT_SEC + 1
-0008CDr 2               @FsCalcNext:
-0008CDr 2                 ; Advance CF_BUF_PTR by 32
-0008CDr 2  A5 24          lda CF_BUF_PTR
-0008CFr 2  18             clc
-0008D0r 2  69 20          adc #FS_ENTRY_SIZE
-0008D2r 2  85 24          sta CF_BUF_PTR
-0008D4r 2  90 02          bcc @FsCalcNoCarry
-0008D6r 2  E6 25          inc CF_BUF_PTR + 1
-0008D8r 2               @FsCalcNoCarry:
-0008D8r 2  E8             inx
-0008D9r 2  E0 10          cpx #FS_MAX_FILES
-0008DBr 2  D0 97          bne @FsCalcLoop
-0008DDr 2  60             rts
-0008DEr 2               
-0008DEr 2               ; FsDirectory — Print directory listing of all used entries
-0008DEr 2               ; Output via Chrout (respects current IO_MODE)
-0008DEr 2               ; Modifies: Flags, A, X, Y
-0008DEr 2               FsDirectory:
-0008DEr 2  20 rr rr       jsr FsReadDir                 ; Load directory sector
-0008E1r 2  90 01          bcc @FsDirStart
-0008E3r 2  60             rts                           ; Error reading directory
-0008E4r 2               @FsDirStart:
-0008E4r 2  A9 00          lda #<FS_SECTOR_BUF
-0008E6r 2  85 24          sta CF_BUF_PTR
-0008E8r 2  A9 06          lda #>FS_SECTOR_BUF
-0008EAr 2  85 25          sta CF_BUF_PTR + 1
-0008ECr 2  A2 00          ldx #$00                      ; Entry counter
-0008EEr 2               @FsDirLoop:
-0008EEr 2  DA             phx
-0008EFr 2  A0 0B          ldy #FS_ENTRY_FLAGS
-0008F1r 2  B1 24          lda (CF_BUF_PTR),y
-0008F3r 2  29 01          and #FS_FLAG_USED
-0008F5r 2  F0 3A          beq @FsDirNext                ; Skip unused entries
-0008F7r 2                 ; Print filename (8 chars)
-0008F7r 2  A0 00          ldy #$00
-0008F9r 2               @FsDirName:
-0008F9r 2  B1 24          lda (CF_BUF_PTR),y
-0008FBr 2  20 rr rr       jsr Chrout
-0008FEr 2  C8             iny
-0008FFr 2  C0 08          cpy #$08
-000901r 2  D0 F6          bne @FsDirName
-000903r 2                 ; Print dot separator
-000903r 2  A9 2E          lda #'.'
-000905r 2  20 rr rr       jsr Chrout
-000908r 2                 ; Print extension (3 chars)
-000908r 2               @FsDirExt:
-000908r 2  B1 24          lda (CF_BUF_PTR),y
-00090Ar 2  20 rr rr       jsr Chrout
-00090Dr 2  C8             iny
-00090Er 2  C0 0B          cpy #$0B
-000910r 2  D0 F6          bne @FsDirExt
-000912r 2                 ; Print space
-000912r 2  A9 20          lda #' '
-000914r 2  20 rr rr       jsr Chrout
-000917r 2                 ; Print file size in decimal
-000917r 2  A0 0E          ldy #FS_ENTRY_FSIZE
-000919r 2  B1 24          lda (CF_BUF_PTR),y
-00091Br 2  8D 4A 03       sta FS_FILE_SIZE
-00091Er 2  C8             iny
-00091Fr 2  B1 24          lda (CF_BUF_PTR),y
-000921r 2  8D 4B 03       sta FS_FILE_SIZE + 1
-000924r 2  20 rr rr       jsr FsPrintSize
-000927r 2                 ; Print newline
-000927r 2  A9 0D          lda #$0D
-000929r 2  20 rr rr       jsr Chrout
-00092Cr 2  A9 0A          lda #$0A
-00092Er 2  20 rr rr       jsr Chrout
-000931r 2               @FsDirNext:
-000931r 2                 ; Advance CF_BUF_PTR by 32
-000931r 2  A5 24          lda CF_BUF_PTR
-000933r 2  18             clc
-000934r 2  69 20          adc #FS_ENTRY_SIZE
+0007D7r 2  D0 F8          bne @StWritePage              ; Loop for 256 bytes
+0007D9r 2  E6 25          inc CF_BUF_PTR + 1            ; Next page
+0007DBr 2  CA             dex
+0007DCr 2  D0 F3          bne @StWritePage
+0007DEr 2  20 rr rr       jsr StWaitReady               ; Wait for write to complete
+0007E1r 2               @StWriteDone:
+0007E1r 2  60             rts
+0007E2r 2               
+0007E2r 2               ; === Simple Custom Filesystem ===
+0007E2r 2               ; Directory at LBA 0: 16 entries x 32 bytes = 512 bytes
+0007E2r 2               ; Entry format:
+0007E2r 2               ;   $00-$07: 8-byte filename (space-padded)
+0007E2r 2               ;   $08-$0A: 3-byte extension (space-padded)
+0007E2r 2               ;   $0B:     flags (bit 0 = in use)
+0007E2r 2               ;   $0C-$0D: start sector (little-endian)
+0007E2r 2               ;   $0E-$0F: file size in bytes (little-endian)
+0007E2r 2               ;   $10-$1F: reserved (16 bytes)
+0007E2r 2               
+0007E2r 2               ; FsParseName — Parse null-terminated filename at STR_PTR into FS_FNAME_BUF
+0007E2r 2               ; Converts "NAME.EXT" into 8+3 space-padded format
+0007E2r 2               ; Input: STR_PTR ($02-$03) points to null-terminated filename
+0007E2r 2               ; Output: FS_FNAME_BUF filled with padded 8+3 name
+0007E2r 2               ; Modifies: Flags, A, X, Y
+0007E2r 2               FsParseName:
+0007E2r 2                 ; Fill FS_FNAME_BUF with spaces
+0007E2r 2  A9 20          lda #$20
+0007E4r 2  A2 0A          ldx #10
+0007E6r 2               @FsParseClr:
+0007E6r 2  9D 50 03       sta FS_FNAME_BUF,x
+0007E9r 2  CA             dex
+0007EAr 2  10 FA          bpl @FsParseClr
+0007ECr 2                 ; Copy name part (up to 8 chars, stop at '.' or null)
+0007ECr 2  A0 00          ldy #$00                      ; Source index
+0007EEr 2  A2 00          ldx #$00                      ; Dest index (name portion)
+0007F0r 2               @FsParseName:
+0007F0r 2  B1 02          lda (STR_PTR),y
+0007F2r 2  F0 35          beq @FsParseDone              ; Null terminator — no extension
+0007F4r 2  C9 2E          cmp #'.'
+0007F6r 2  F0 15          beq @FsParseExt               ; Found dot — start extension
+0007F8r 2  E0 08          cpx #$08
+0007FAr 2  B0 0E          bcs @FsParseSkipName          ; Already 8 chars, skip extras
+0007FCr 2                 ; Convert lowercase to uppercase
+0007FCr 2  C9 61          cmp #'a'
+0007FEr 2  90 06          bcc @FsStoreNameChar
+000800r 2  C9 7B          cmp #'z' + 1
+000802r 2  B0 02          bcs @FsStoreNameChar
+000804r 2  29 DF          and #$DF                      ; Clear bit 5 to uppercase
+000806r 2               @FsStoreNameChar:
+000806r 2  9D 50 03       sta FS_FNAME_BUF,x
+000809r 2  E8             inx
+00080Ar 2               @FsParseSkipName:
+00080Ar 2  C8             iny
+00080Br 2  80 E3          bra @FsParseName
+00080Dr 2               @FsParseExt:
+00080Dr 2  C8             iny                           ; Skip the dot
+00080Er 2  A2 08          ldx #$08                      ; Extension starts at offset 8
+000810r 2               @FsParseExtLoop:
+000810r 2  B1 02          lda (STR_PTR),y
+000812r 2  F0 15          beq @FsParseDone              ; Null terminator
+000814r 2  E0 0B          cpx #$0B
+000816r 2  B0 11          bcs @FsParseDone              ; Max 3 ext chars
+000818r 2                 ; Convert lowercase to uppercase
+000818r 2  C9 61          cmp #'a'
+00081Ar 2  90 06          bcc @FsStoreExtChar
+00081Cr 2  C9 7B          cmp #'z' + 1
+00081Er 2  B0 02          bcs @FsStoreExtChar
+000820r 2  29 DF          and #$DF
+000822r 2               @FsStoreExtChar:
+000822r 2  9D 50 03       sta FS_FNAME_BUF,x
+000825r 2  E8             inx
+000826r 2  C8             iny
+000827r 2  80 E7          bra @FsParseExtLoop
+000829r 2               @FsParseDone:
+000829r 2  60             rts
+00082Ar 2               
+00082Ar 2               ; FsReadDir — Read directory sector (LBA 0) into FS_SECTOR_BUF
+00082Ar 2               ; Output: Carry clear = success, Carry set = error
+00082Ar 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+00082Ar 2               FsReadDir:
+00082Ar 2  64 26          stz CF_LBA                    ; LBA = 0 (directory sector)
+00082Cr 2  64 27          stz CF_LBA + 1
+00082Er 2  64 28          stz CF_LBA + 2
+000830r 2  64 29          stz CF_LBA + 3
+000832r 2  A9 00          lda #<FS_SECTOR_BUF
+000834r 2  85 24          sta CF_BUF_PTR
+000836r 2  A9 06          lda #>FS_SECTOR_BUF
+000838r 2  85 25          sta CF_BUF_PTR + 1
+00083Ar 2  4C rr rr       jmp StReadSector
+00083Dr 2               
+00083Dr 2               ; FsWriteDir — Write directory sector from FS_SECTOR_BUF to LBA 0
+00083Dr 2               ; Output: Carry clear = success, Carry set = error
+00083Dr 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+00083Dr 2               FsWriteDir:
+00083Dr 2  64 26          stz CF_LBA
+00083Fr 2  64 27          stz CF_LBA + 1
+000841r 2  64 28          stz CF_LBA + 2
+000843r 2  64 29          stz CF_LBA + 3
+000845r 2  A9 00          lda #<FS_SECTOR_BUF
+000847r 2  85 24          sta CF_BUF_PTR
+000849r 2  A9 06          lda #>FS_SECTOR_BUF
+00084Br 2  85 25          sta CF_BUF_PTR + 1
+00084Dr 2  4C rr rr       jmp StWriteSector
+000850r 2               
+000850r 2               ; FsFindFile — Search directory for filename in FS_FNAME_BUF
+000850r 2               ; Must call FsReadDir first to load directory into FS_SECTOR_BUF
+000850r 2               ; Output: Carry clear = found, X = entry index (0-15), CF_BUF_PTR points to entry
+000850r 2               ;         Carry set = not found
+000850r 2               ; Modifies: Flags, A, X, Y, CF_BUF_PTR
+000850r 2               FsFindFile:
+000850r 2  A9 00          lda #<FS_SECTOR_BUF
+000852r 2  85 24          sta CF_BUF_PTR
+000854r 2  A9 06          lda #>FS_SECTOR_BUF
+000856r 2  85 25          sta CF_BUF_PTR + 1
+000858r 2  A2 00          ldx #$00                      ; Entry index
+00085Ar 2               @FsFindLoop:
+00085Ar 2                 ; Check if entry is in use
+00085Ar 2  A0 0B          ldy #FS_ENTRY_FLAGS
+00085Cr 2  B1 24          lda (CF_BUF_PTR),y
+00085Er 2  29 01          and #FS_FLAG_USED
+000860r 2  F0 13          beq @FsFindNext               ; Skip unused entries
+000862r 2                 ; Compare 11-byte filename
+000862r 2  A0 00          ldy #$00
+000864r 2               @FsFindCmp:
+000864r 2  B1 24          lda (CF_BUF_PTR),y
+000866r 2  D9 50 03       cmp FS_FNAME_BUF,y
+000869r 2  D0 0A          bne @FsFindNext               ; Mismatch
+00086Br 2  C8             iny
+00086Cr 2  C0 0B          cpy #11
+00086Er 2  D0 F4          bne @FsFindCmp
+000870r 2                 ; Match found
+000870r 2  8E 4D 03       stx FS_DIR_IDX
+000873r 2  18             clc
+000874r 2  60             rts
+000875r 2               @FsFindNext:
+000875r 2                 ; Advance CF_BUF_PTR by 32 (FS_ENTRY_SIZE)
+000875r 2  A5 24          lda CF_BUF_PTR
+000877r 2  18             clc
+000878r 2  69 20          adc #FS_ENTRY_SIZE
+00087Ar 2  85 24          sta CF_BUF_PTR
+00087Cr 2  90 02          bcc @FsFindNoCarry
+00087Er 2  E6 25          inc CF_BUF_PTR + 1
+000880r 2               @FsFindNoCarry:
+000880r 2  E8             inx
+000881r 2  E0 10          cpx #FS_MAX_FILES
+000883r 2  D0 D5          bne @FsFindLoop
+000885r 2  38             sec                           ; Not found
+000886r 2  60             rts
+000887r 2               
+000887r 2               ; FsFindFree — Find first free directory entry
+000887r 2               ; Must call FsReadDir first
+000887r 2               ; Output: Carry clear = found, X = entry index, CF_BUF_PTR points to entry
+000887r 2               ;         Carry set = directory full
+000887r 2               ; Modifies: Flags, A, X, Y, CF_BUF_PTR
+000887r 2               FsFindFree:
+000887r 2  A9 00          lda #<FS_SECTOR_BUF
+000889r 2  85 24          sta CF_BUF_PTR
+00088Br 2  A9 06          lda #>FS_SECTOR_BUF
+00088Dr 2  85 25          sta CF_BUF_PTR + 1
+00088Fr 2  A2 00          ldx #$00
+000891r 2               @FsFreeLoop:
+000891r 2  A0 0B          ldy #FS_ENTRY_FLAGS
+000893r 2  B1 24          lda (CF_BUF_PTR),y
+000895r 2  29 01          and #FS_FLAG_USED
+000897r 2  F0 12          beq @FsFreeFound              ; Found unused entry
+000899r 2                 ; Advance by 32
+000899r 2  A5 24          lda CF_BUF_PTR
+00089Br 2  18             clc
+00089Cr 2  69 20          adc #FS_ENTRY_SIZE
+00089Er 2  85 24          sta CF_BUF_PTR
+0008A0r 2  90 02          bcc @FsFreeNoCarry
+0008A2r 2  E6 25          inc CF_BUF_PTR + 1
+0008A4r 2               @FsFreeNoCarry:
+0008A4r 2  E8             inx
+0008A5r 2  E0 10          cpx #FS_MAX_FILES
+0008A7r 2  D0 E8          bne @FsFreeLoop
+0008A9r 2  38             sec                           ; Directory full
+0008AAr 2  60             rts
+0008ABr 2               @FsFreeFound:
+0008ABr 2  8E 4D 03       stx FS_DIR_IDX
+0008AEr 2  18             clc
+0008AFr 2  60             rts
+0008B0r 2               
+0008B0r 2               ; FsCalcNextSec — Calculate next free sector by scanning all directory entries
+0008B0r 2               ; Must call FsReadDir first
+0008B0r 2               ; Output: FS_NEXT_SEC = first free sector after all used files
+0008B0r 2               ; Modifies: Flags, A, X, Y
+0008B0r 2               FsCalcNextSec:
+0008B0r 2  A9 01          lda #<FS_DATA_START           ; Start with first data sector
+0008B2r 2  8D 4E 03       sta FS_NEXT_SEC
+0008B5r 2  A9 00          lda #>FS_DATA_START
+0008B7r 2  8D 4F 03       sta FS_NEXT_SEC + 1
+0008BAr 2                 ; Scan all entries to find highest used sector + file sector count
+0008BAr 2  A9 00          lda #<FS_SECTOR_BUF
+0008BCr 2  85 24          sta CF_BUF_PTR
+0008BEr 2  A9 06          lda #>FS_SECTOR_BUF
+0008C0r 2  85 25          sta CF_BUF_PTR + 1
+0008C2r 2  A2 00          ldx #$00
+0008C4r 2               @FsCalcLoop:
+0008C4r 2  A0 0B          ldy #FS_ENTRY_FLAGS
+0008C6r 2  B1 24          lda (CF_BUF_PTR),y
+0008C8r 2  29 01          and #FS_FLAG_USED
+0008CAr 2  F0 51          beq @FsCalcNext               ; Skip unused
+0008CCr 2                 ; Get start sector + ceil(size/512)
+0008CCr 2  A0 0C          ldy #FS_ENTRY_START
+0008CEr 2  B1 24          lda (CF_BUF_PTR),y
+0008D0r 2  8D 48 03       sta FS_START_SEC
+0008D3r 2  C8             iny
+0008D4r 2  B1 24          lda (CF_BUF_PTR),y
+0008D6r 2  8D 49 03       sta FS_START_SEC + 1
+0008D9r 2                 ; Get file size
+0008D9r 2  A0 0E          ldy #FS_ENTRY_FSIZE
+0008DBr 2  B1 24          lda (CF_BUF_PTR),y
+0008DDr 2  8D 4A 03       sta FS_FILE_SIZE
+0008E0r 2  C8             iny
+0008E1r 2  B1 24          lda (CF_BUF_PTR),y
+0008E3r 2  8D 4B 03       sta FS_FILE_SIZE + 1
+0008E6r 2                 ; Calculate sectors used = (size + 511) / 512 = (size + 511) >> 9
+0008E6r 2                 ; = (size_hi + 1) if size_lo > 0, else size_hi / 2... simplify:
+0008E6r 2                 ; sectors = (size >> 9) rounded up = high_byte >> 1, plus 1 if any remainder
+0008E6r 2  AD 4B 03       lda FS_FILE_SIZE + 1          ; High byte of size
+0008E9r 2  4A             lsr a                         ; Divide by 2 (each sector = 512 = 2 pages)
+0008EAr 2  8D 4C 03       sta FS_SEC_COUNT
+0008EDr 2                 ; Check if there's a remainder (low byte != 0 or high byte bit 0 was set)
+0008EDr 2  AD 4B 03       lda FS_FILE_SIZE + 1
+0008F0r 2  29 01          and #$01                      ; Was high byte odd?
+0008F2r 2  D0 05          bne @FsCalcRound
+0008F4r 2  AD 4A 03       lda FS_FILE_SIZE              ; Low byte non-zero?
+0008F7r 2  F0 03          beq @FsCalcNoRound
+0008F9r 2               @FsCalcRound:
+0008F9r 2  EE 4C 03       inc FS_SEC_COUNT              ; Round up
+0008FCr 2               @FsCalcNoRound:
+0008FCr 2                 ; End sector = start + sector count
+0008FCr 2  AD 48 03       lda FS_START_SEC
+0008FFr 2  18             clc
+000900r 2  6D 4C 03       adc FS_SEC_COUNT
+000903r 2  48             pha
+000904r 2  AD 49 03       lda FS_START_SEC + 1
+000907r 2  69 00          adc #$00
+000909r 2  AA             tax                           ; X = end sector high
+00090Ar 2  68             pla                           ; A = end sector low
+00090Br 2                 ; Compare with FS_NEXT_SEC — keep the larger value
+00090Br 2  EC 4F 03       cpx FS_NEXT_SEC + 1
+00090Er 2  90 0D          bcc @FsCalcNext               ; End < FS_NEXT_SEC, skip
+000910r 2  D0 05          bne @FsCalcUpdate             ; End high > FS_NEXT_SEC high, update
+000912r 2  CD 4E 03       cmp FS_NEXT_SEC
+000915r 2  90 06          bcc @FsCalcNext               ; End low < FS_NEXT_SEC low
+000917r 2               @FsCalcUpdate:
+000917r 2  8D 4E 03       sta FS_NEXT_SEC
+00091Ar 2  8E 4F 03       stx FS_NEXT_SEC + 1
+00091Dr 2               @FsCalcNext:
+00091Dr 2                 ; Advance CF_BUF_PTR by 32
+00091Dr 2  A5 24          lda CF_BUF_PTR
+00091Fr 2  18             clc
+000920r 2  69 20          adc #FS_ENTRY_SIZE
+000922r 2  85 24          sta CF_BUF_PTR
+000924r 2  90 02          bcc @FsCalcNoCarry
+000926r 2  E6 25          inc CF_BUF_PTR + 1
+000928r 2               @FsCalcNoCarry:
+000928r 2  E8             inx
+000929r 2  E0 10          cpx #FS_MAX_FILES
+00092Br 2  D0 97          bne @FsCalcLoop
+00092Dr 2  60             rts
+00092Er 2               
+00092Er 2               ; FsDirectory — Print directory listing of all used entries
+00092Er 2               ; Output via Chrout (respects current IO_MODE)
+00092Er 2               ; Modifies: Flags, A, X, Y
+00092Er 2               FsDirectory:
+00092Er 2  20 rr rr       jsr FsReadDir                 ; Load directory sector
+000931r 2  90 01          bcc @FsDirStart
+000933r 2  60             rts                           ; Error reading directory
+000934r 2               @FsDirStart:
+000934r 2  A9 00          lda #<FS_SECTOR_BUF
 000936r 2  85 24          sta CF_BUF_PTR
-000938r 2  90 02          bcc @FsDirNoCarry
-00093Ar 2  E6 25          inc CF_BUF_PTR + 1
-00093Cr 2               @FsDirNoCarry:
-00093Cr 2  FA             plx
-00093Dr 2  E8             inx
-00093Er 2  E0 10          cpx #FS_MAX_FILES
-000940r 2  D0 AC          bne @FsDirLoop
-000942r 2  60             rts
-000943r 2               
-000943r 2               ; FsPrintSize — Print 16-bit value in FS_FILE_SIZE as decimal
-000943r 2               ; Modifies: Flags, A, X, Y
-000943r 2               FsPrintSize:
-000943r 2                 ; Convert 16-bit value to decimal digits (up to 5 digits for 0-65535)
-000943r 2                 ; Use successive subtraction of powers of 10
-000943r 2  A2 00          ldx #$00                      ; Digit index / leading zero suppression
-000945r 2  A0 00          ldy #$00                      ; Power-of-10 table index
-000947r 2               @FsPrintSizeLoop:
-000947r 2  A9 2F          lda #'0' - 1                  ; Start character below '0'
-000949r 2  8D 4D 03       sta FS_DIR_IDX                ; Reuse as digit scratch
-00094Cr 2               @FsPrintSub:
-00094Cr 2  EE 4D 03       inc FS_DIR_IDX
-00094Fr 2  AD 4A 03       lda FS_FILE_SIZE
-000952r 2  38             sec
-000953r 2  F9 rr rr       sbc @FsPow10Lo,y
-000956r 2  48             pha
-000957r 2  AD 4B 03       lda FS_FILE_SIZE + 1
-00095Ar 2  F9 rr rr       sbc @FsPow10Hi,y
-00095Dr 2  90 09          bcc @FsPrintSizeDig           ; Underflow — done subtracting
-00095Fr 2  8D 4B 03       sta FS_FILE_SIZE + 1
-000962r 2  68             pla
-000963r 2  8D 4A 03       sta FS_FILE_SIZE
-000966r 2  80 E4          bra @FsPrintSub
-000968r 2               @FsPrintSizeDig:
-000968r 2  68             pla                           ; Discard underflowed low byte
-000969r 2  AD 4D 03       lda FS_DIR_IDX
-00096Cr 2  C9 30          cmp #'0'
-00096Er 2  D0 04          bne @FsPrintSizeOut           ; Non-zero digit
-000970r 2  E0 00          cpx #$00
-000972r 2  F0 04          beq @FsPrintSizeSkip          ; Suppress leading zeros
-000974r 2               @FsPrintSizeOut:
-000974r 2  20 rr rr       jsr Chrout
-000977r 2  E8             inx                           ; Mark that we've printed a digit
-000978r 2               @FsPrintSizeSkip:
-000978r 2  C8             iny
-000979r 2  C0 04          cpy #$04                      ; 4 powers of 10 (10000, 1000, 100, 10)
-00097Br 2  D0 CA          bne @FsPrintSizeLoop
-00097Dr 2                 ; Always print ones digit
-00097Dr 2  AD 4A 03       lda FS_FILE_SIZE
-000980r 2  09 30          ora #'0'                      ; Low byte is 0-9 at this point
-000982r 2  20 rr rr       jsr Chrout
-000985r 2  60             rts
-000986r 2  10 E8 64 0A  @FsPow10Lo: .byte <10000, <1000, <100, <10
-00098Ar 2  27 03 00 00  @FsPow10Hi: .byte >10000, >1000, >100, >10
-00098Er 2               
-00098Er 2               ; FsLoadFile — Load file from CF into PROGRAM_START ($0800)
-00098Er 2               ; Input: STR_PTR ($02-$03) points to null-terminated filename
-00098Er 2               ; Output: Carry clear = success, FS_FILE_SIZE = bytes loaded
-00098Er 2               ;         Carry set = file not found or read error
-00098Er 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
-00098Er 2               FsLoadFile:
-00098Er 2  20 rr rr       jsr FsParseName               ; Parse filename into FS_FNAME_BUF
-000991r 2  20 rr rr       jsr FsReadDir                 ; Read directory sector
-000994r 2  B0 63          bcs @FsLoadErr
-000996r 2  20 rr rr       jsr FsFindFile                ; Search for filename
-000999r 2  B0 5E          bcs @FsLoadErr                ; Not found
-00099Br 2                 ; Read file metadata from entry
-00099Br 2  A0 0C          ldy #FS_ENTRY_START
-00099Dr 2  B1 24          lda (CF_BUF_PTR),y
-00099Fr 2  8D 48 03       sta FS_START_SEC
-0009A2r 2  C8             iny
-0009A3r 2  B1 24          lda (CF_BUF_PTR),y
-0009A5r 2  8D 49 03       sta FS_START_SEC + 1
-0009A8r 2  A0 0E          ldy #FS_ENTRY_FSIZE
-0009AAr 2  B1 24          lda (CF_BUF_PTR),y
-0009ACr 2  8D 4A 03       sta FS_FILE_SIZE
-0009AFr 2  C8             iny
-0009B0r 2  B1 24          lda (CF_BUF_PTR),y
-0009B2r 2  8D 4B 03       sta FS_FILE_SIZE + 1
-0009B5r 2                 ; Calculate number of sectors to read
-0009B5r 2  AD 4B 03       lda FS_FILE_SIZE + 1
-0009B8r 2  4A             lsr a
-0009B9r 2  8D 4C 03       sta FS_SEC_COUNT
-0009BCr 2  AD 4B 03       lda FS_FILE_SIZE + 1
-0009BFr 2  29 01          and #$01
-0009C1r 2  D0 05          bne @FsLoadRound
-0009C3r 2  AD 4A 03       lda FS_FILE_SIZE
-0009C6r 2  F0 03          beq @FsLoadNoRound
-0009C8r 2               @FsLoadRound:
-0009C8r 2  EE 4C 03       inc FS_SEC_COUNT
-0009CBr 2               @FsLoadNoRound:
-0009CBr 2                 ; Set up LBA starting at file's start sector
-0009CBr 2  AD 48 03       lda FS_START_SEC
-0009CEr 2  85 26          sta CF_LBA
-0009D0r 2  AD 49 03       lda FS_START_SEC + 1
-0009D3r 2  85 27          sta CF_LBA + 1
-0009D5r 2  64 28          stz CF_LBA + 2
-0009D7r 2  64 29          stz CF_LBA + 3
-0009D9r 2                 ; Set destination pointer to PROGRAM_START
-0009D9r 2  A9 00          lda #<PROGRAM_START
-0009DBr 2  85 24          sta CF_BUF_PTR
-0009DDr 2  A9 08          lda #>PROGRAM_START
-0009DFr 2  85 25          sta CF_BUF_PTR + 1
-0009E1r 2                 ; Read sectors
-0009E1r 2  AE 4C 03       ldx FS_SEC_COUNT
-0009E4r 2  F0 10          beq @FsLoadOk                 ; Zero-size file
-0009E6r 2               @FsLoadSec:
-0009E6r 2  DA             phx
-0009E7r 2  20 rr rr       jsr StReadSector              ; Read sector (advances CF_BUF_PTR by 512)
-0009EAr 2  B0 0C          bcs @FsLoadSecErr
-0009ECr 2                 ; Increment LBA
-0009ECr 2  E6 26          inc CF_LBA
-0009EEr 2  D0 02          bne @FsLoadSecNext
-0009F0r 2  E6 27          inc CF_LBA + 1
-0009F2r 2               @FsLoadSecNext:
-0009F2r 2  FA             plx
-0009F3r 2  CA             dex
-0009F4r 2  D0 F0          bne @FsLoadSec
-0009F6r 2               @FsLoadOk:
-0009F6r 2  18             clc
-0009F7r 2  60             rts
-0009F8r 2               @FsLoadSecErr:
-0009F8r 2  FA             plx                           ; Balance stack
-0009F9r 2               @FsLoadErr:
-0009F9r 2  38             sec
-0009FAr 2  60             rts
-0009FBr 2               
-0009FBr 2               ; FsSaveFile — Save data from PROGRAM_START to CF
-0009FBr 2               ; Input: STR_PTR ($02-$03) points to null-terminated filename
-0009FBr 2               ;        FS_FILE_SIZE ($034A-$034B) = number of bytes to save
-0009FBr 2               ; Output: Carry clear = success, Carry set = error (directory full or write error)
-0009FBr 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
-0009FBr 2               FsSaveFile:
-0009FBr 2  20 rr rr       jsr FsParseName               ; Parse filename into FS_FNAME_BUF
-0009FEr 2  20 rr rr       jsr FsReadDir                 ; Read directory sector
-000A01r 2  90 03          bcc @FsSaveReadOk
-000A03r 2  4C rr rr       jmp @FsSaveErr
-000A06r 2               @FsSaveReadOk:
-000A06r 2                 ; Try to find existing file with same name
-000A06r 2  20 rr rr       jsr FsFindFile
-000A09r 2  90 08          bcc @FsSaveOverwrite
-000A0Br 2                 ; Not found — find a free slot
-000A0Br 2  20 rr rr       jsr FsFindFree
-000A0Er 2  90 11          bcc @FsSaveAlloc
-000A10r 2  4C rr rr       jmp @FsSaveErr                ; Directory full
-000A13r 2               @FsSaveOverwrite:
-000A13r 2                 ; CF_BUF_PTR already points to the existing entry — clear old flags
-000A13r 2  A0 0B          ldy #FS_ENTRY_FLAGS
-000A15r 2  A9 00          lda #$00
-000A17r 2  91 24          sta (CF_BUF_PTR),y            ; Mark old entry as free
-000A19r 2                 ; Find a free slot (could be the one we just freed or another)
-000A19r 2  20 rr rr       jsr FsFindFree
-000A1Cr 2  90 03          bcc @FsSaveAlloc
-000A1Er 2  4C rr rr       jmp @FsSaveErr
-000A21r 2               @FsSaveAlloc:
-000A21r 2                 ; Save CF_BUF_PTR (points to free entry from FsFindFree)
-000A21r 2  A5 24          lda CF_BUF_PTR
-000A23r 2  48             pha
-000A24r 2  A5 25          lda CF_BUF_PTR + 1
-000A26r 2  48             pha
-000A27r 2                 ; Calculate next free sector (clobbers CF_BUF_PTR)
-000A27r 2  20 rr rr       jsr FsCalcNextSec
-000A2Ar 2                 ; Restore CF_BUF_PTR to the free directory entry
-000A2Ar 2  68             pla
-000A2Br 2  85 25          sta CF_BUF_PTR + 1
-000A2Dr 2  68             pla
-000A2Er 2  85 24          sta CF_BUF_PTR
-000A30r 2                 ; Calculate sectors needed
-000A30r 2  AD 4B 03       lda FS_FILE_SIZE + 1
-000A33r 2  4A             lsr a
-000A34r 2  8D 4C 03       sta FS_SEC_COUNT
-000A37r 2  AD 4B 03       lda FS_FILE_SIZE + 1
-000A3Ar 2  29 01          and #$01
-000A3Cr 2  D0 05          bne @FsSaveRound
-000A3Er 2  AD 4A 03       lda FS_FILE_SIZE
-000A41r 2  F0 03          beq @FsSaveNoRound
-000A43r 2               @FsSaveRound:
-000A43r 2  EE 4C 03       inc FS_SEC_COUNT
-000A46r 2               @FsSaveNoRound:
-000A46r 2                 ; Fill in directory entry at CF_BUF_PTR
-000A46r 2                 ; Copy filename (11 bytes)
-000A46r 2  A0 00          ldy #$00
-000A48r 2               @FsSaveCopyName:
-000A48r 2  B9 50 03       lda FS_FNAME_BUF,y
-000A4Br 2  91 24          sta (CF_BUF_PTR),y
-000A4Dr 2  C8             iny
-000A4Er 2  C0 0B          cpy #11
-000A50r 2  D0 F6          bne @FsSaveCopyName
-000A52r 2                 ; Set flags = in use
-000A52r 2  A9 01          lda #FS_FLAG_USED
-000A54r 2  91 24          sta (CF_BUF_PTR),y            ; Y = 11 = FS_ENTRY_FLAGS
-000A56r 2                 ; Set start sector
-000A56r 2  A0 0C          ldy #FS_ENTRY_START
-000A58r 2  AD 4E 03       lda FS_NEXT_SEC
-000A5Br 2  91 24          sta (CF_BUF_PTR),y
-000A5Dr 2  8D 48 03       sta FS_START_SEC
-000A60r 2  C8             iny
-000A61r 2  AD 4F 03       lda FS_NEXT_SEC + 1
-000A64r 2  91 24          sta (CF_BUF_PTR),y
-000A66r 2  8D 49 03       sta FS_START_SEC + 1
-000A69r 2                 ; Set file size
-000A69r 2  A0 0E          ldy #FS_ENTRY_FSIZE
-000A6Br 2  AD 4A 03       lda FS_FILE_SIZE
-000A6Er 2  91 24          sta (CF_BUF_PTR),y
-000A70r 2  C8             iny
-000A71r 2  AD 4B 03       lda FS_FILE_SIZE + 1
-000A74r 2  91 24          sta (CF_BUF_PTR),y
-000A76r 2                 ; Clear reserved bytes
-000A76r 2  A0 10          ldy #$10
-000A78r 2  A9 00          lda #$00
-000A7Ar 2               @FsSaveClearRsv:
-000A7Ar 2  91 24          sta (CF_BUF_PTR),y
-000A7Cr 2  C8             iny
-000A7Dr 2  C0 20          cpy #FS_ENTRY_SIZE
-000A7Fr 2  D0 F9          bne @FsSaveClearRsv
-000A81r 2                 ; Write updated directory back to CF
-000A81r 2  20 rr rr       jsr FsWriteDir
-000A84r 2  B0 2E          bcs @FsSaveErr
-000A86r 2                 ; Now write file data sectors
-000A86r 2  AD 48 03       lda FS_START_SEC
-000A89r 2  85 26          sta CF_LBA
-000A8Br 2  AD 49 03       lda FS_START_SEC + 1
-000A8Er 2  85 27          sta CF_LBA + 1
-000A90r 2  64 28          stz CF_LBA + 2
-000A92r 2  64 29          stz CF_LBA + 3
-000A94r 2                 ; Source = PROGRAM_START
-000A94r 2  A9 00          lda #<PROGRAM_START
-000A96r 2  85 24          sta CF_BUF_PTR
-000A98r 2  A9 08          lda #>PROGRAM_START
-000A9Ar 2  85 25          sta CF_BUF_PTR + 1
-000A9Cr 2  AE 4C 03       ldx FS_SEC_COUNT
-000A9Fr 2  F0 10          beq @FsSaveOk                 ; Zero-size file
-000AA1r 2               @FsSaveSec:
-000AA1r 2  DA             phx
-000AA2r 2  20 rr rr       jsr StWriteSector             ; Write sector (advances CF_BUF_PTR by 512)
-000AA5r 2  B0 0C          bcs @FsSaveSecErr
-000AA7r 2                 ; Increment LBA
-000AA7r 2  E6 26          inc CF_LBA
-000AA9r 2  D0 02          bne @FsSaveSecNext
-000AABr 2  E6 27          inc CF_LBA + 1
-000AADr 2               @FsSaveSecNext:
-000AADr 2  FA             plx
-000AAEr 2  CA             dex
-000AAFr 2  D0 F0          bne @FsSaveSec
-000AB1r 2               @FsSaveOk:
-000AB1r 2  18             clc
-000AB2r 2  60             rts
-000AB3r 2               @FsSaveSecErr:
-000AB3r 2  FA             plx                           ; Balance stack
-000AB4r 2               @FsSaveErr:
-000AB4r 2  38             sec
-000AB5r 2  60             rts
-000AB6r 2               
-000AB6r 2               ; FsDeleteFile — Delete a file from the CompactFlash filesystem
-000AB6r 2               ; Input: STR_PTR ($02-$03) points to null-terminated filename
-000AB6r 2               ; Output: Carry clear = success, Carry set = file not found or error
-000AB6r 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
-000AB6r 2               FsDeleteFileImpl:
-000AB6r 2  20 rr rr       jsr FsParseName               ; Parse filename into FS_FNAME_BUF
-000AB9r 2  20 rr rr       jsr FsReadDir                 ; Read directory sector
-000ABCr 2  B0 0F          bcs @FsDelErr
-000ABEr 2  20 rr rr       jsr FsFindFile                ; Search for filename
-000AC1r 2  B0 0A          bcs @FsDelErr                 ; Not found
-000AC3r 2                 ; Clear the flags byte to mark entry as unused
-000AC3r 2  A0 0B          ldy #FS_ENTRY_FLAGS
-000AC5r 2  A9 00          lda #$00
-000AC7r 2  91 24          sta (CF_BUF_PTR),y
-000AC9r 2                 ; Write updated directory back to CF
-000AC9r 2  20 rr rr       jsr FsWriteDir
-000ACCr 2                 ; Carry already set/clear from FsWriteDir
-000ACCr 2  60             rts
-000ACDr 2               @FsDelErr:
-000ACDr 2  38             sec
-000ACEr 2  60             rts
-000ACFr 2               
-000ACFr 2               ; === Serial ASCII LOAD/SAVE ===
-000ACFr 2               ; Plain binary transfer protocol over serial
-000ACFr 2               ; Load: receives 2-byte size (lo/hi) then raw data bytes into PROGRAM_START
-000ACFr 2               ; Save: sends 2-byte size (lo/hi) then raw data bytes from PROGRAM_START
-000ACFr 2               
-000ACFr 2               ; --- ASCII Load ---
-000ACFr 2               
-000ACFr 2               ; AsciiLoadImpl — Receive raw binary data via serial into program memory
-000ACFr 2               ; Switches IO_MODE to serial, receives 2-byte size then raw data bytes
-000ACFr 2               ; Data is written starting at PROGRAM_START ($0800)
-000ACFr 2               ; Output: Carry clear = success, XFER_PTR points past last byte written
-000ACFr 2               ; Modifies: Flags, A, X, Y
-000ACFr 2               AsciiLoadImpl:
-000ACFr 2                 ; Save and switch IO_MODE to serial
-000ACFr 2  AD 06 03       lda IO_MODE
-000AD2r 2  8D 19 03       sta XFER_IO_SAVE
-000AD5r 2  A9 01          lda #$01                      ; Serial mode
-000AD7r 2  8D 06 03       sta IO_MODE
-000ADAr 2                 ; Print prompt
-000ADAr 2  A9 0D          lda #$0D
-000ADCr 2  20 rr rr       jsr SerialChrout
-000ADFr 2  A9 0A          lda #$0A
-000AE1r 2  20 rr rr       jsr SerialChrout
-000AE4r 2  A9 rr          lda #<@AsciiLoadMsg
-000AE6r 2  85 02          sta STR_PTR
-000AE8r 2  A9 rr          lda #>@AsciiLoadMsg
-000AEAr 2  85 03          sta STR_PTR + 1
-000AECr 2  20 rr rr       jsr @SerialPrintStr
-000AEFr 2                 ; Read 2-byte size (low byte first)
-000AEFr 2               @AsciiWaitSzLo:
-000AEFr 2  20 rr rr       jsr BufferSize
-000AF2r 2  F0 FB          beq @AsciiWaitSzLo
-000AF4r 2  20 rr rr       jsr ReadBuffer
-000AF7r 2  8D 17 03       sta XFER_REMAIN
-000AFAr 2               @AsciiWaitSzHi:
-000AFAr 2  20 rr rr       jsr BufferSize
-000AFDr 2  F0 FB          beq @AsciiWaitSzHi
-000AFFr 2  20 rr rr       jsr ReadBuffer
-000B02r 2  8D 18 03       sta XFER_REMAIN + 1
-000B05r 2                 ; Initialize write pointer to PROGRAM_START
-000B05r 2  A9 00          lda #<PROGRAM_START
-000B07r 2  85 2A          sta XFER_PTR
-000B09r 2  A9 08          lda #>PROGRAM_START
-000B0Br 2  85 2B          sta XFER_PTR + 1
-000B0Dr 2                 ; Check for zero-length transfer
-000B0Dr 2  AD 17 03       lda XFER_REMAIN
-000B10r 2  0D 18 03       ora XFER_REMAIN + 1
-000B13r 2  F0 25          beq @AsciiLoadOk
-000B15r 2                 ; Receive data bytes (Y stays 0, pointer is advanced each byte)
-000B15r 2  A0 00          ldy #$00
-000B17r 2               @AsciiLoadByte:
-000B17r 2  20 rr rr       jsr BufferSize
-000B1Ar 2  F0 FB          beq @AsciiLoadByte
-000B1Cr 2  20 rr rr       jsr ReadBuffer
-000B1Fr 2  91 2A          sta (XFER_PTR),y              ; Write byte to target address
-000B21r 2                 ; Advance write pointer
-000B21r 2  E6 2A          inc XFER_PTR
-000B23r 2  D0 02          bne @AsciiLoadNoPage
-000B25r 2  E6 2B          inc XFER_PTR + 1
-000B27r 2               @AsciiLoadNoPage:
-000B27r 2                 ; Decrement remaining count
-000B27r 2  AD 17 03       lda XFER_REMAIN
-000B2Ar 2  D0 03          bne @AsciiLoadDecLo
-000B2Cr 2  CE 18 03       dec XFER_REMAIN + 1
-000B2Fr 2               @AsciiLoadDecLo:
-000B2Fr 2  CE 17 03       dec XFER_REMAIN
-000B32r 2                 ; Check if done
-000B32r 2  AD 17 03       lda XFER_REMAIN
-000B35r 2  0D 18 03       ora XFER_REMAIN + 1
-000B38r 2  D0 DD          bne @AsciiLoadByte
-000B3Ar 2               @AsciiLoadOk:
-000B3Ar 2                 ; XFER_PTR now points past last byte written
-000B3Ar 2                 ; Print success message
-000B3Ar 2  A9 0D          lda #$0D
-000B3Cr 2  20 rr rr       jsr SerialChrout
-000B3Fr 2  A9 0A          lda #$0A
-000B41r 2  20 rr rr       jsr SerialChrout
-000B44r 2  A9 rr          lda #<@AsciiOkMsg
-000B46r 2  85 02          sta STR_PTR
-000B48r 2  A9 rr          lda #>@AsciiOkMsg
-000B4Ar 2  85 03          sta STR_PTR + 1
-000B4Cr 2  20 rr rr       jsr @SerialPrintStr
-000B4Fr 2                 ; Restore IO_MODE
-000B4Fr 2  AD 19 03       lda XFER_IO_SAVE
-000B52r 2  8D 06 03       sta IO_MODE
-000B55r 2  18             clc                           ; Success
-000B56r 2  60             rts
-000B57r 2               
-000B57r 2               ; Internal: print null-terminated string via serial
-000B57r 2               ; Input: STR_PTR points to string
-000B57r 2               @SerialPrintStr:
-000B57r 2  A0 00          ldy #$00
-000B59r 2               @SerialPrintLoop:
-000B59r 2  B1 02          lda (STR_PTR),y
-000B5Br 2  F0 06          beq @SerialPrintDone
-000B5Dr 2  20 rr rr       jsr SerialChrout
-000B60r 2  C8             iny
-000B61r 2  D0 F6          bne @SerialPrintLoop
-000B63r 2               @SerialPrintDone:
-000B63r 2  60             rts
-000B64r 2               
-000B64r 2  52 45 41 44  @AsciiLoadMsg: .asciiz "READY TO RECEIVE"
-000B68r 2  59 20 54 4F  
-000B6Cr 2  20 52 45 43  
-000B75r 2  4F 4B 00     @AsciiOkMsg:   .asciiz "OK"
-000B78r 2               
-000B78r 2               ; --- ASCII Save ---
-000B78r 2               
-000B78r 2               ; AsciiSaveImpl — Transmit program memory as raw binary via serial
-000B78r 2               ; Sends 2-byte size (lo/hi) then raw data bytes from PROGRAM_START to BAS_PRGEND
-000B78r 2               ; Output: Carry clear = success
-000B78r 2               ; Modifies: Flags, A, X, Y
-000B78r 2               AsciiSaveImpl:
-000B78r 2                 ; Save and switch IO_MODE to serial
-000B78r 2  AD 06 03       lda IO_MODE
-000B7Br 2  8D 19 03       sta XFER_IO_SAVE
-000B7Er 2  A9 01          lda #$01
-000B80r 2  8D 06 03       sta IO_MODE
-000B83r 2                 ; Initialize save pointer
-000B83r 2  A9 00          lda #<PROGRAM_START
-000B85r 2  85 2A          sta XFER_PTR
-000B87r 2  A9 08          lda #>PROGRAM_START
-000B89r 2  85 2B          sta XFER_PTR + 1
-000B8Br 2                 ; Calculate remaining bytes = BAS_PRGEND - PROGRAM_START
-000B8Br 2  A5 12          lda z:BAS_PRGEND
-000B8Dr 2  38             sec
-000B8Er 2  E9 00          sbc #<PROGRAM_START
-000B90r 2  8D 17 03       sta XFER_REMAIN
-000B93r 2  A5 13          lda z:BAS_PRGEND + 1
-000B95r 2  E9 08          sbc #>PROGRAM_START
-000B97r 2  8D 18 03       sta XFER_REMAIN + 1
-000B9Ar 2                 ; Send 2-byte size (low byte first)
-000B9Ar 2  AD 17 03       lda XFER_REMAIN
-000B9Dr 2  20 rr rr       jsr SerialChrout
-000BA0r 2  AD 18 03       lda XFER_REMAIN + 1
-000BA3r 2  20 rr rr       jsr SerialChrout
-000BA6r 2                 ; Check for zero-length program
-000BA6r 2  AD 17 03       lda XFER_REMAIN
-000BA9r 2  0D 18 03       ora XFER_REMAIN + 1
-000BACr 2  F0 20          beq @AsciiSaveDone
-000BAEr 2                 ; Send data bytes (Y stays 0, pointer is advanced each byte)
-000BAEr 2  A0 00          ldy #$00
-000BB0r 2               @AsciiSaveByte:
-000BB0r 2  B1 2A          lda (XFER_PTR),y
-000BB2r 2  20 rr rr       jsr SerialChrout
-000BB5r 2                 ; Advance read pointer
-000BB5r 2  E6 2A          inc XFER_PTR
-000BB7r 2  D0 02          bne @AsciiSaveNoPage
-000BB9r 2  E6 2B          inc XFER_PTR + 1
-000BBBr 2               @AsciiSaveNoPage:
-000BBBr 2                 ; Decrement remaining count
-000BBBr 2  AD 17 03       lda XFER_REMAIN
-000BBEr 2  D0 03          bne @AsciiSaveDecLo
-000BC0r 2  CE 18 03       dec XFER_REMAIN + 1
-000BC3r 2               @AsciiSaveDecLo:
-000BC3r 2  CE 17 03       dec XFER_REMAIN
-000BC6r 2                 ; Check if done
-000BC6r 2  AD 17 03       lda XFER_REMAIN
-000BC9r 2  0D 18 03       ora XFER_REMAIN + 1
-000BCCr 2  D0 E2          bne @AsciiSaveByte
-000BCEr 2               @AsciiSaveDone:
-000BCEr 2                 ; Restore IO_MODE
-000BCEr 2  AD 19 03       lda XFER_IO_SAVE
-000BD1r 2  8D 06 03       sta IO_MODE
-000BD4r 2  18             clc                           ; Success
-000BD5r 2  60             rts
-000BD6r 2               
-000BD6r 2               ; Draw the splash screen
-000BD6r 2               ; Uses video output to display centered title and boot menu
-000BD6r 2               ; Modifies: Flags, A, X, Y
-000BD6r 2               Splash:
-000BD6r 2  20 rr rr       jsr VideoClear                ; Clear the video screen
-000BD9r 2                 ; Position cursor at row 10, col 10 for title
-000BD9r 2  A2 0A          ldx #10
-000BDBr 2  A0 0A          ldy #10
-000BDDr 2  20 rr rr       jsr VideoSetCursor
-000BE0r 2  A9 rr          lda #<@SplashTitle
-000BE2r 2  85 02          sta STR_PTR
-000BE4r 2  A9 rr          lda #>@SplashTitle
-000BE6r 2  85 03          sta STR_PTR + 1
-000BE8r 2  20 rr rr       jsr VideoPrintStrImpl
-000BEBr 2                 ; Position cursor at row 12, col 8 for boot menu (centered: (40-24)/2 = 8)
-000BEBr 2  A2 08          ldx #8
-000BEDr 2  A0 0C          ldy #12
-000BEFr 2  20 rr rr       jsr VideoSetCursor
-000BF2r 2  A9 rr          lda #<@SplashMenu
-000BF4r 2  85 02          sta STR_PTR
-000BF6r 2  A9 rr          lda #>@SplashMenu
-000BF8r 2  85 03          sta STR_PTR + 1
-000BFAr 2  20 rr rr       jsr VideoPrintStrImpl
-000BFDr 2  60             rts
-000BFEr 2  2D 2D 20 54  @SplashTitle: .asciiz "-- The 'COB' v1.0 --"
-000C02r 2  68 65 20 27  
-000C06r 2  43 4F 42 27  
-000C13r 2  45 4E 54 45  @SplashMenu:  .asciiz "ENTER=BASIC  ESC=MONITOR"
-000C17r 2  52 3D 42 41  
-000C1Br 2  53 49 43 20  
-000C2Cr 2               
-000C2Cr 2               ; NMI Handler
-000C2Cr 2               Nmi:
-000C2Cr 2  40             rti
-000C2Dr 2               
-000C2Dr 2               ; BRK Handler — saves full CPU state and enters monitor
-000C2Dr 2               ; On entry from @IrqBrk: A/X/Y are the user's original values (restored by IRQ handler).
-000C2Dr 2               ; The CPU's hardware push left P/PCL/PCH on the stack.
-000C2Dr 2               Break:
-000C2Dr 2  8D 13 03       sta BRK_A                     ; Save user's A register
-000C30r 2  8E 14 03       stx BRK_X                     ; Save user's X register
-000C33r 2  8C 15 03       sty BRK_Y                     ; Save user's Y register
-000C36r 2  BA             tsx                           ; Get current SP
-000C37r 2  8E 16 03       stx BRK_SP                   ; Save SP (points below P/PCL/PCH on stack)
-000C3Ar 2  68             pla                           ; Pull saved P
-000C3Br 2  8D 10 03       sta BRK_P
-000C3Er 2  68             pla                           ; Pull saved PCL (PC+2)
-000C3Fr 2  8D 11 03       sta BRK_PCL
-000C42r 2  68             pla                           ; Pull saved PCH
-000C43r 2  8D 12 03       sta BRK_PCH
-000C46r 2  4C rr rr       jmp MonitorBrkEntry
-000C49r 2               
-000C49r 2               ; IRQ Handler
-000C49r 2               Irq:
-000C49r 2  48             pha
-000C4Ar 2  5A             phy
-000C4Br 2  DA             phx
-000C4Cr 2  BA             tsx                           ; Get stack pointer to check saved status register
-000C4Dr 2  BD 04 01       lda $104,x                    ; Load saved P (SP+4: past X, Y, A we pushed)
-000C50r 2  29 10          and #$10                      ; Test B flag — set by BRK, clear by hardware IRQ
-000C52r 2  D0 3B          bne @IrqBrk                   ; Branch if this was a BRK instruction
-000C54r 2               @IrqSc:
-000C54r 2  AD 01 90       lda SC_STATUS
-000C57r 2  29 80          and #SC_STATUS_IRQ            ; Check if serial data caused the interrupt
-000C59r 2  F0 14          beq @IrqCheckKB               ; If not, check keyboard
-000C5Br 2  AD 00 90       lda SC_DATA                   ; Read the data from serial register
-000C5Er 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
-000C61r 2  20 rr rr       jsr BufferSize
-000C64r 2  C9 F0          cmp #$F0                      ; Is the buffer almost full?
-000C66r 2  90 23          bcc @IrqExit                  ; If not, exit
-000C68r 2  A9 01          lda #$01                      ; No parity, no echo, RTSB high, TX interrupts disabled, RX interrupts enabled
-000C6Ar 2  8D 02 90       sta SC_CMD                    ; Otherwise, signal not ready for receiving (RTSB high)
-000C6Dr 2  80 1C          bra @IrqExit
-000C6Fr 2               @IrqCheckKB:
-000C6Fr 2  AD 0D 94       lda GPIO_IFR
-000C72r 2  29 10          and #GPIO_INT_CB1             ; Check if CB1 (matrix keyboard data ready) caused the interrupt
-000C74r 2  F0 08          beq @IrqCheckPS2              ; If not, check PS/2 keyboard
-000C76r 2  AD 00 94       lda GPIO_PORTB                ; Read ASCII byte from matrix keyboard (also clears CB1 IFR flag)
-000C79r 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
-000C7Cr 2  80 0D          bra @IrqExit
-000C7Er 2               @IrqCheckPS2:
-000C7Er 2  AD 0D 94       lda GPIO_IFR
-000C81r 2  29 02          and #GPIO_INT_CA1             ; Check if CA1 (PS/2 keyboard data ready) caused the interrupt
-000C83r 2  F0 06          beq @IrqExit                  ; If not, exit
-000C85r 2  AD 01 94       lda GPIO_PORTA                ; Read ASCII byte from PS/2 keyboard (also clears CA1 IFR flag)
-000C88r 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
-000C8Br 2               @IrqExit:
-000C8Br 2  FA             plx
-000C8Cr 2  7A             ply
-000C8Dr 2  68             pla
-000C8Er 2  40             rti
-000C8Fr 2               @IrqBrk:
-000C8Fr 2  FA             plx                           ; Restore saved registers
-000C90r 2  7A             ply
-000C91r 2  68             pla
-000C92r 2  58             cli                           ; Re-enable interrupts — abandoning interrupt context
-000C93r 2  6C 02 03       jmp (BRK_PTR)                 ; BRK — dispatch with P/PCL/PCH still on stack
-000C96r 2               
-000C96r 2               ; NMI Vector
-000C96r 2               NmiVec:
-000C96r 2  6C 04 03       jmp (NMI_PTR)                 ; Indirect jump through NMI pointer to the NMI handler
+000938r 2  A9 06          lda #>FS_SECTOR_BUF
+00093Ar 2  85 25          sta CF_BUF_PTR + 1
+00093Cr 2  A2 00          ldx #$00                      ; Entry counter
+00093Er 2               @FsDirLoop:
+00093Er 2  DA             phx
+00093Fr 2  A0 0B          ldy #FS_ENTRY_FLAGS
+000941r 2  B1 24          lda (CF_BUF_PTR),y
+000943r 2  29 01          and #FS_FLAG_USED
+000945r 2  F0 3A          beq @FsDirNext                ; Skip unused entries
+000947r 2                 ; Print filename (8 chars)
+000947r 2  A0 00          ldy #$00
+000949r 2               @FsDirName:
+000949r 2  B1 24          lda (CF_BUF_PTR),y
+00094Br 2  20 rr rr       jsr Chrout
+00094Er 2  C8             iny
+00094Fr 2  C0 08          cpy #$08
+000951r 2  D0 F6          bne @FsDirName
+000953r 2                 ; Print dot separator
+000953r 2  A9 2E          lda #'.'
+000955r 2  20 rr rr       jsr Chrout
+000958r 2                 ; Print extension (3 chars)
+000958r 2               @FsDirExt:
+000958r 2  B1 24          lda (CF_BUF_PTR),y
+00095Ar 2  20 rr rr       jsr Chrout
+00095Dr 2  C8             iny
+00095Er 2  C0 0B          cpy #$0B
+000960r 2  D0 F6          bne @FsDirExt
+000962r 2                 ; Print space
+000962r 2  A9 20          lda #' '
+000964r 2  20 rr rr       jsr Chrout
+000967r 2                 ; Print file size in decimal
+000967r 2  A0 0E          ldy #FS_ENTRY_FSIZE
+000969r 2  B1 24          lda (CF_BUF_PTR),y
+00096Br 2  8D 4A 03       sta FS_FILE_SIZE
+00096Er 2  C8             iny
+00096Fr 2  B1 24          lda (CF_BUF_PTR),y
+000971r 2  8D 4B 03       sta FS_FILE_SIZE + 1
+000974r 2  20 rr rr       jsr FsPrintSize
+000977r 2                 ; Print newline
+000977r 2  A9 0D          lda #$0D
+000979r 2  20 rr rr       jsr Chrout
+00097Cr 2  A9 0A          lda #$0A
+00097Er 2  20 rr rr       jsr Chrout
+000981r 2               @FsDirNext:
+000981r 2                 ; Advance CF_BUF_PTR by 32
+000981r 2  A5 24          lda CF_BUF_PTR
+000983r 2  18             clc
+000984r 2  69 20          adc #FS_ENTRY_SIZE
+000986r 2  85 24          sta CF_BUF_PTR
+000988r 2  90 02          bcc @FsDirNoCarry
+00098Ar 2  E6 25          inc CF_BUF_PTR + 1
+00098Cr 2               @FsDirNoCarry:
+00098Cr 2  FA             plx
+00098Dr 2  E8             inx
+00098Er 2  E0 10          cpx #FS_MAX_FILES
+000990r 2  D0 AC          bne @FsDirLoop
+000992r 2  60             rts
+000993r 2               
+000993r 2               ; FsPrintSize — Print 16-bit value in FS_FILE_SIZE as decimal
+000993r 2               ; Modifies: Flags, A, X, Y
+000993r 2               FsPrintSize:
+000993r 2                 ; Convert 16-bit value to decimal digits (up to 5 digits for 0-65535)
+000993r 2                 ; Use successive subtraction of powers of 10
+000993r 2  A2 00          ldx #$00                      ; Digit index / leading zero suppression
+000995r 2  A0 00          ldy #$00                      ; Power-of-10 table index
+000997r 2               @FsPrintSizeLoop:
+000997r 2  A9 2F          lda #'0' - 1                  ; Start character below '0'
+000999r 2  8D 4D 03       sta FS_DIR_IDX                ; Reuse as digit scratch
+00099Cr 2               @FsPrintSub:
+00099Cr 2  EE 4D 03       inc FS_DIR_IDX
+00099Fr 2  AD 4A 03       lda FS_FILE_SIZE
+0009A2r 2  38             sec
+0009A3r 2  F9 rr rr       sbc @FsPow10Lo,y
+0009A6r 2  48             pha
+0009A7r 2  AD 4B 03       lda FS_FILE_SIZE + 1
+0009AAr 2  F9 rr rr       sbc @FsPow10Hi,y
+0009ADr 2  90 09          bcc @FsPrintSizeDig           ; Underflow — done subtracting
+0009AFr 2  8D 4B 03       sta FS_FILE_SIZE + 1
+0009B2r 2  68             pla
+0009B3r 2  8D 4A 03       sta FS_FILE_SIZE
+0009B6r 2  80 E4          bra @FsPrintSub
+0009B8r 2               @FsPrintSizeDig:
+0009B8r 2  68             pla                           ; Discard underflowed low byte
+0009B9r 2  AD 4D 03       lda FS_DIR_IDX
+0009BCr 2  C9 30          cmp #'0'
+0009BEr 2  D0 04          bne @FsPrintSizeOut           ; Non-zero digit
+0009C0r 2  E0 00          cpx #$00
+0009C2r 2  F0 04          beq @FsPrintSizeSkip          ; Suppress leading zeros
+0009C4r 2               @FsPrintSizeOut:
+0009C4r 2  20 rr rr       jsr Chrout
+0009C7r 2  E8             inx                           ; Mark that we've printed a digit
+0009C8r 2               @FsPrintSizeSkip:
+0009C8r 2  C8             iny
+0009C9r 2  C0 04          cpy #$04                      ; 4 powers of 10 (10000, 1000, 100, 10)
+0009CBr 2  D0 CA          bne @FsPrintSizeLoop
+0009CDr 2                 ; Always print ones digit
+0009CDr 2  AD 4A 03       lda FS_FILE_SIZE
+0009D0r 2  09 30          ora #'0'                      ; Low byte is 0-9 at this point
+0009D2r 2  20 rr rr       jsr Chrout
+0009D5r 2  60             rts
+0009D6r 2  10 E8 64 0A  @FsPow10Lo: .byte <10000, <1000, <100, <10
+0009DAr 2  27 03 00 00  @FsPow10Hi: .byte >10000, >1000, >100, >10
+0009DEr 2               
+0009DEr 2               ; FsLoadFile — Load file from CF into PROGRAM_START ($0800)
+0009DEr 2               ; Input: STR_PTR ($02-$03) points to null-terminated filename
+0009DEr 2               ; Output: Carry clear = success, FS_FILE_SIZE = bytes loaded
+0009DEr 2               ;         Carry set = file not found or read error
+0009DEr 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+0009DEr 2               FsLoadFile:
+0009DEr 2  20 rr rr       jsr FsParseName               ; Parse filename into FS_FNAME_BUF
+0009E1r 2  20 rr rr       jsr FsReadDir                 ; Read directory sector
+0009E4r 2  B0 63          bcs @FsLoadErr
+0009E6r 2  20 rr rr       jsr FsFindFile                ; Search for filename
+0009E9r 2  B0 5E          bcs @FsLoadErr                ; Not found
+0009EBr 2                 ; Read file metadata from entry
+0009EBr 2  A0 0C          ldy #FS_ENTRY_START
+0009EDr 2  B1 24          lda (CF_BUF_PTR),y
+0009EFr 2  8D 48 03       sta FS_START_SEC
+0009F2r 2  C8             iny
+0009F3r 2  B1 24          lda (CF_BUF_PTR),y
+0009F5r 2  8D 49 03       sta FS_START_SEC + 1
+0009F8r 2  A0 0E          ldy #FS_ENTRY_FSIZE
+0009FAr 2  B1 24          lda (CF_BUF_PTR),y
+0009FCr 2  8D 4A 03       sta FS_FILE_SIZE
+0009FFr 2  C8             iny
+000A00r 2  B1 24          lda (CF_BUF_PTR),y
+000A02r 2  8D 4B 03       sta FS_FILE_SIZE + 1
+000A05r 2                 ; Calculate number of sectors to read
+000A05r 2  AD 4B 03       lda FS_FILE_SIZE + 1
+000A08r 2  4A             lsr a
+000A09r 2  8D 4C 03       sta FS_SEC_COUNT
+000A0Cr 2  AD 4B 03       lda FS_FILE_SIZE + 1
+000A0Fr 2  29 01          and #$01
+000A11r 2  D0 05          bne @FsLoadRound
+000A13r 2  AD 4A 03       lda FS_FILE_SIZE
+000A16r 2  F0 03          beq @FsLoadNoRound
+000A18r 2               @FsLoadRound:
+000A18r 2  EE 4C 03       inc FS_SEC_COUNT
+000A1Br 2               @FsLoadNoRound:
+000A1Br 2                 ; Set up LBA starting at file's start sector
+000A1Br 2  AD 48 03       lda FS_START_SEC
+000A1Er 2  85 26          sta CF_LBA
+000A20r 2  AD 49 03       lda FS_START_SEC + 1
+000A23r 2  85 27          sta CF_LBA + 1
+000A25r 2  64 28          stz CF_LBA + 2
+000A27r 2  64 29          stz CF_LBA + 3
+000A29r 2                 ; Set destination pointer to PROGRAM_START
+000A29r 2  A9 00          lda #<PROGRAM_START
+000A2Br 2  85 24          sta CF_BUF_PTR
+000A2Dr 2  A9 08          lda #>PROGRAM_START
+000A2Fr 2  85 25          sta CF_BUF_PTR + 1
+000A31r 2                 ; Read sectors
+000A31r 2  AE 4C 03       ldx FS_SEC_COUNT
+000A34r 2  F0 10          beq @FsLoadOk                 ; Zero-size file
+000A36r 2               @FsLoadSec:
+000A36r 2  DA             phx
+000A37r 2  20 rr rr       jsr StReadSector              ; Read sector (advances CF_BUF_PTR by 512)
+000A3Ar 2  B0 0C          bcs @FsLoadSecErr
+000A3Cr 2                 ; Increment LBA
+000A3Cr 2  E6 26          inc CF_LBA
+000A3Er 2  D0 02          bne @FsLoadSecNext
+000A40r 2  E6 27          inc CF_LBA + 1
+000A42r 2               @FsLoadSecNext:
+000A42r 2  FA             plx
+000A43r 2  CA             dex
+000A44r 2  D0 F0          bne @FsLoadSec
+000A46r 2               @FsLoadOk:
+000A46r 2  18             clc
+000A47r 2  60             rts
+000A48r 2               @FsLoadSecErr:
+000A48r 2  FA             plx                           ; Balance stack
+000A49r 2               @FsLoadErr:
+000A49r 2  38             sec
+000A4Ar 2  60             rts
+000A4Br 2               
+000A4Br 2               ; FsSaveFile — Save data from PROGRAM_START to CF
+000A4Br 2               ; Input: STR_PTR ($02-$03) points to null-terminated filename
+000A4Br 2               ;        FS_FILE_SIZE ($034A-$034B) = number of bytes to save
+000A4Br 2               ; Output: Carry clear = success, Carry set = error (directory full or write error)
+000A4Br 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+000A4Br 2               FsSaveFile:
+000A4Br 2  20 rr rr       jsr FsParseName               ; Parse filename into FS_FNAME_BUF
+000A4Er 2  20 rr rr       jsr FsReadDir                 ; Read directory sector
+000A51r 2  90 03          bcc @FsSaveReadOk
+000A53r 2  4C rr rr       jmp @FsSaveErr
+000A56r 2               @FsSaveReadOk:
+000A56r 2                 ; Try to find existing file with same name
+000A56r 2  20 rr rr       jsr FsFindFile
+000A59r 2  90 08          bcc @FsSaveOverwrite
+000A5Br 2                 ; Not found — find a free slot
+000A5Br 2  20 rr rr       jsr FsFindFree
+000A5Er 2  90 11          bcc @FsSaveAlloc
+000A60r 2  4C rr rr       jmp @FsSaveErr                ; Directory full
+000A63r 2               @FsSaveOverwrite:
+000A63r 2                 ; CF_BUF_PTR already points to the existing entry — clear old flags
+000A63r 2  A0 0B          ldy #FS_ENTRY_FLAGS
+000A65r 2  A9 00          lda #$00
+000A67r 2  91 24          sta (CF_BUF_PTR),y            ; Mark old entry as free
+000A69r 2                 ; Find a free slot (could be the one we just freed or another)
+000A69r 2  20 rr rr       jsr FsFindFree
+000A6Cr 2  90 03          bcc @FsSaveAlloc
+000A6Er 2  4C rr rr       jmp @FsSaveErr
+000A71r 2               @FsSaveAlloc:
+000A71r 2                 ; Save CF_BUF_PTR (points to free entry from FsFindFree)
+000A71r 2  A5 24          lda CF_BUF_PTR
+000A73r 2  48             pha
+000A74r 2  A5 25          lda CF_BUF_PTR + 1
+000A76r 2  48             pha
+000A77r 2                 ; Calculate next free sector (clobbers CF_BUF_PTR)
+000A77r 2  20 rr rr       jsr FsCalcNextSec
+000A7Ar 2                 ; Restore CF_BUF_PTR to the free directory entry
+000A7Ar 2  68             pla
+000A7Br 2  85 25          sta CF_BUF_PTR + 1
+000A7Dr 2  68             pla
+000A7Er 2  85 24          sta CF_BUF_PTR
+000A80r 2                 ; Calculate sectors needed
+000A80r 2  AD 4B 03       lda FS_FILE_SIZE + 1
+000A83r 2  4A             lsr a
+000A84r 2  8D 4C 03       sta FS_SEC_COUNT
+000A87r 2  AD 4B 03       lda FS_FILE_SIZE + 1
+000A8Ar 2  29 01          and #$01
+000A8Cr 2  D0 05          bne @FsSaveRound
+000A8Er 2  AD 4A 03       lda FS_FILE_SIZE
+000A91r 2  F0 03          beq @FsSaveNoRound
+000A93r 2               @FsSaveRound:
+000A93r 2  EE 4C 03       inc FS_SEC_COUNT
+000A96r 2               @FsSaveNoRound:
+000A96r 2                 ; Fill in directory entry at CF_BUF_PTR
+000A96r 2                 ; Copy filename (11 bytes)
+000A96r 2  A0 00          ldy #$00
+000A98r 2               @FsSaveCopyName:
+000A98r 2  B9 50 03       lda FS_FNAME_BUF,y
+000A9Br 2  91 24          sta (CF_BUF_PTR),y
+000A9Dr 2  C8             iny
+000A9Er 2  C0 0B          cpy #11
+000AA0r 2  D0 F6          bne @FsSaveCopyName
+000AA2r 2                 ; Set flags = in use
+000AA2r 2  A9 01          lda #FS_FLAG_USED
+000AA4r 2  91 24          sta (CF_BUF_PTR),y            ; Y = 11 = FS_ENTRY_FLAGS
+000AA6r 2                 ; Set start sector
+000AA6r 2  A0 0C          ldy #FS_ENTRY_START
+000AA8r 2  AD 4E 03       lda FS_NEXT_SEC
+000AABr 2  91 24          sta (CF_BUF_PTR),y
+000AADr 2  8D 48 03       sta FS_START_SEC
+000AB0r 2  C8             iny
+000AB1r 2  AD 4F 03       lda FS_NEXT_SEC + 1
+000AB4r 2  91 24          sta (CF_BUF_PTR),y
+000AB6r 2  8D 49 03       sta FS_START_SEC + 1
+000AB9r 2                 ; Set file size
+000AB9r 2  A0 0E          ldy #FS_ENTRY_FSIZE
+000ABBr 2  AD 4A 03       lda FS_FILE_SIZE
+000ABEr 2  91 24          sta (CF_BUF_PTR),y
+000AC0r 2  C8             iny
+000AC1r 2  AD 4B 03       lda FS_FILE_SIZE + 1
+000AC4r 2  91 24          sta (CF_BUF_PTR),y
+000AC6r 2                 ; Clear reserved bytes
+000AC6r 2  A0 10          ldy #$10
+000AC8r 2  A9 00          lda #$00
+000ACAr 2               @FsSaveClearRsv:
+000ACAr 2  91 24          sta (CF_BUF_PTR),y
+000ACCr 2  C8             iny
+000ACDr 2  C0 20          cpy #FS_ENTRY_SIZE
+000ACFr 2  D0 F9          bne @FsSaveClearRsv
+000AD1r 2                 ; Write updated directory back to CF
+000AD1r 2  20 rr rr       jsr FsWriteDir
+000AD4r 2  B0 2E          bcs @FsSaveErr
+000AD6r 2                 ; Now write file data sectors
+000AD6r 2  AD 48 03       lda FS_START_SEC
+000AD9r 2  85 26          sta CF_LBA
+000ADBr 2  AD 49 03       lda FS_START_SEC + 1
+000ADEr 2  85 27          sta CF_LBA + 1
+000AE0r 2  64 28          stz CF_LBA + 2
+000AE2r 2  64 29          stz CF_LBA + 3
+000AE4r 2                 ; Source = PROGRAM_START
+000AE4r 2  A9 00          lda #<PROGRAM_START
+000AE6r 2  85 24          sta CF_BUF_PTR
+000AE8r 2  A9 08          lda #>PROGRAM_START
+000AEAr 2  85 25          sta CF_BUF_PTR + 1
+000AECr 2  AE 4C 03       ldx FS_SEC_COUNT
+000AEFr 2  F0 10          beq @FsSaveOk                 ; Zero-size file
+000AF1r 2               @FsSaveSec:
+000AF1r 2  DA             phx
+000AF2r 2  20 rr rr       jsr StWriteSector             ; Write sector (advances CF_BUF_PTR by 512)
+000AF5r 2  B0 0C          bcs @FsSaveSecErr
+000AF7r 2                 ; Increment LBA
+000AF7r 2  E6 26          inc CF_LBA
+000AF9r 2  D0 02          bne @FsSaveSecNext
+000AFBr 2  E6 27          inc CF_LBA + 1
+000AFDr 2               @FsSaveSecNext:
+000AFDr 2  FA             plx
+000AFEr 2  CA             dex
+000AFFr 2  D0 F0          bne @FsSaveSec
+000B01r 2               @FsSaveOk:
+000B01r 2  18             clc
+000B02r 2  60             rts
+000B03r 2               @FsSaveSecErr:
+000B03r 2  FA             plx                           ; Balance stack
+000B04r 2               @FsSaveErr:
+000B04r 2  38             sec
+000B05r 2  60             rts
+000B06r 2               
+000B06r 2               ; FsDeleteFile — Delete a file from the CompactFlash filesystem
+000B06r 2               ; Input: STR_PTR ($02-$03) points to null-terminated filename
+000B06r 2               ; Output: Carry clear = success, Carry set = file not found or error
+000B06r 2               ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
+000B06r 2               FsDeleteFileImpl:
+000B06r 2  20 rr rr       jsr FsParseName               ; Parse filename into FS_FNAME_BUF
+000B09r 2  20 rr rr       jsr FsReadDir                 ; Read directory sector
+000B0Cr 2  B0 0F          bcs @FsDelErr
+000B0Er 2  20 rr rr       jsr FsFindFile                ; Search for filename
+000B11r 2  B0 0A          bcs @FsDelErr                 ; Not found
+000B13r 2                 ; Clear the flags byte to mark entry as unused
+000B13r 2  A0 0B          ldy #FS_ENTRY_FLAGS
+000B15r 2  A9 00          lda #$00
+000B17r 2  91 24          sta (CF_BUF_PTR),y
+000B19r 2                 ; Write updated directory back to CF
+000B19r 2  20 rr rr       jsr FsWriteDir
+000B1Cr 2                 ; Carry already set/clear from FsWriteDir
+000B1Cr 2  60             rts
+000B1Dr 2               @FsDelErr:
+000B1Dr 2  38             sec
+000B1Er 2  60             rts
+000B1Fr 2               
+000B1Fr 2               ; === Serial ASCII LOAD/SAVE ===
+000B1Fr 2               ; Plain binary transfer protocol over serial
+000B1Fr 2               ; Load: receives 2-byte size (lo/hi) then raw data bytes into PROGRAM_START
+000B1Fr 2               ; Save: sends 2-byte size (lo/hi) then raw data bytes from PROGRAM_START
+000B1Fr 2               
+000B1Fr 2               ; --- ASCII Load ---
+000B1Fr 2               
+000B1Fr 2               ; AsciiLoadImpl — Receive raw binary data via serial into program memory
+000B1Fr 2               ; Switches IO_MODE to serial, receives 2-byte size then raw data bytes
+000B1Fr 2               ; Data is written starting at PROGRAM_START ($0800)
+000B1Fr 2               ; Output: Carry clear = success, XFER_PTR points past last byte written
+000B1Fr 2               ; Modifies: Flags, A, X, Y
+000B1Fr 2               AsciiLoadImpl:
+000B1Fr 2                 ; Save and switch IO_MODE to serial
+000B1Fr 2  AD 06 03       lda IO_MODE
+000B22r 2  8D 19 03       sta XFER_IO_SAVE
+000B25r 2  A9 01          lda #$01                      ; Serial mode
+000B27r 2  8D 06 03       sta IO_MODE
+000B2Ar 2                 ; Print prompt
+000B2Ar 2  A9 0D          lda #$0D
+000B2Cr 2  20 rr rr       jsr SerialChrout
+000B2Fr 2  A9 0A          lda #$0A
+000B31r 2  20 rr rr       jsr SerialChrout
+000B34r 2  A9 rr          lda #<@AsciiLoadMsg
+000B36r 2  85 02          sta STR_PTR
+000B38r 2  A9 rr          lda #>@AsciiLoadMsg
+000B3Ar 2  85 03          sta STR_PTR + 1
+000B3Cr 2  20 rr rr       jsr @SerialPrintStr
+000B3Fr 2                 ; Read 2-byte size (low byte first)
+000B3Fr 2               @AsciiWaitSzLo:
+000B3Fr 2  20 rr rr       jsr BufferSize
+000B42r 2  F0 FB          beq @AsciiWaitSzLo
+000B44r 2  20 rr rr       jsr ReadBuffer
+000B47r 2  8D 17 03       sta XFER_REMAIN
+000B4Ar 2               @AsciiWaitSzHi:
+000B4Ar 2  20 rr rr       jsr BufferSize
+000B4Dr 2  F0 FB          beq @AsciiWaitSzHi
+000B4Fr 2  20 rr rr       jsr ReadBuffer
+000B52r 2  8D 18 03       sta XFER_REMAIN + 1
+000B55r 2                 ; Initialize write pointer to PROGRAM_START
+000B55r 2  A9 00          lda #<PROGRAM_START
+000B57r 2  85 2A          sta XFER_PTR
+000B59r 2  A9 08          lda #>PROGRAM_START
+000B5Br 2  85 2B          sta XFER_PTR + 1
+000B5Dr 2                 ; Check for zero-length transfer
+000B5Dr 2  AD 17 03       lda XFER_REMAIN
+000B60r 2  0D 18 03       ora XFER_REMAIN + 1
+000B63r 2  F0 25          beq @AsciiLoadOk
+000B65r 2                 ; Receive data bytes (Y stays 0, pointer is advanced each byte)
+000B65r 2  A0 00          ldy #$00
+000B67r 2               @AsciiLoadByte:
+000B67r 2  20 rr rr       jsr BufferSize
+000B6Ar 2  F0 FB          beq @AsciiLoadByte
+000B6Cr 2  20 rr rr       jsr ReadBuffer
+000B6Fr 2  91 2A          sta (XFER_PTR),y              ; Write byte to target address
+000B71r 2                 ; Advance write pointer
+000B71r 2  E6 2A          inc XFER_PTR
+000B73r 2  D0 02          bne @AsciiLoadNoPage
+000B75r 2  E6 2B          inc XFER_PTR + 1
+000B77r 2               @AsciiLoadNoPage:
+000B77r 2                 ; Decrement remaining count
+000B77r 2  AD 17 03       lda XFER_REMAIN
+000B7Ar 2  D0 03          bne @AsciiLoadDecLo
+000B7Cr 2  CE 18 03       dec XFER_REMAIN + 1
+000B7Fr 2               @AsciiLoadDecLo:
+000B7Fr 2  CE 17 03       dec XFER_REMAIN
+000B82r 2                 ; Check if done
+000B82r 2  AD 17 03       lda XFER_REMAIN
+000B85r 2  0D 18 03       ora XFER_REMAIN + 1
+000B88r 2  D0 DD          bne @AsciiLoadByte
+000B8Ar 2               @AsciiLoadOk:
+000B8Ar 2                 ; XFER_PTR now points past last byte written
+000B8Ar 2                 ; Print success message
+000B8Ar 2  A9 0D          lda #$0D
+000B8Cr 2  20 rr rr       jsr SerialChrout
+000B8Fr 2  A9 0A          lda #$0A
+000B91r 2  20 rr rr       jsr SerialChrout
+000B94r 2  A9 rr          lda #<@AsciiOkMsg
+000B96r 2  85 02          sta STR_PTR
+000B98r 2  A9 rr          lda #>@AsciiOkMsg
+000B9Ar 2  85 03          sta STR_PTR + 1
+000B9Cr 2  20 rr rr       jsr @SerialPrintStr
+000B9Fr 2                 ; Restore IO_MODE
+000B9Fr 2  AD 19 03       lda XFER_IO_SAVE
+000BA2r 2  8D 06 03       sta IO_MODE
+000BA5r 2  18             clc                           ; Success
+000BA6r 2  60             rts
+000BA7r 2               
+000BA7r 2               ; Internal: print null-terminated string via serial
+000BA7r 2               ; Input: STR_PTR points to string
+000BA7r 2               @SerialPrintStr:
+000BA7r 2  A0 00          ldy #$00
+000BA9r 2               @SerialPrintLoop:
+000BA9r 2  B1 02          lda (STR_PTR),y
+000BABr 2  F0 06          beq @SerialPrintDone
+000BADr 2  20 rr rr       jsr SerialChrout
+000BB0r 2  C8             iny
+000BB1r 2  D0 F6          bne @SerialPrintLoop
+000BB3r 2               @SerialPrintDone:
+000BB3r 2  60             rts
+000BB4r 2               
+000BB4r 2  52 45 41 44  @AsciiLoadMsg: .asciiz "READY TO RECEIVE"
+000BB8r 2  59 20 54 4F  
+000BBCr 2  20 52 45 43  
+000BC5r 2  4F 4B 00     @AsciiOkMsg:   .asciiz "OK"
+000BC8r 2               
+000BC8r 2               ; --- ASCII Save ---
+000BC8r 2               
+000BC8r 2               ; AsciiSaveImpl — Transmit program memory as raw binary via serial
+000BC8r 2               ; Sends 2-byte size (lo/hi) then raw data bytes from PROGRAM_START to BAS_PRGEND
+000BC8r 2               ; Output: Carry clear = success
+000BC8r 2               ; Modifies: Flags, A, X, Y
+000BC8r 2               AsciiSaveImpl:
+000BC8r 2                 ; Save and switch IO_MODE to serial
+000BC8r 2  AD 06 03       lda IO_MODE
+000BCBr 2  8D 19 03       sta XFER_IO_SAVE
+000BCEr 2  A9 01          lda #$01
+000BD0r 2  8D 06 03       sta IO_MODE
+000BD3r 2                 ; Initialize save pointer
+000BD3r 2  A9 00          lda #<PROGRAM_START
+000BD5r 2  85 2A          sta XFER_PTR
+000BD7r 2  A9 08          lda #>PROGRAM_START
+000BD9r 2  85 2B          sta XFER_PTR + 1
+000BDBr 2                 ; Calculate remaining bytes = BAS_PRGEND - PROGRAM_START
+000BDBr 2  A5 12          lda z:BAS_PRGEND
+000BDDr 2  38             sec
+000BDEr 2  E9 00          sbc #<PROGRAM_START
+000BE0r 2  8D 17 03       sta XFER_REMAIN
+000BE3r 2  A5 13          lda z:BAS_PRGEND + 1
+000BE5r 2  E9 08          sbc #>PROGRAM_START
+000BE7r 2  8D 18 03       sta XFER_REMAIN + 1
+000BEAr 2                 ; Send 2-byte size (low byte first)
+000BEAr 2  AD 17 03       lda XFER_REMAIN
+000BEDr 2  20 rr rr       jsr SerialChrout
+000BF0r 2  AD 18 03       lda XFER_REMAIN + 1
+000BF3r 2  20 rr rr       jsr SerialChrout
+000BF6r 2                 ; Check for zero-length program
+000BF6r 2  AD 17 03       lda XFER_REMAIN
+000BF9r 2  0D 18 03       ora XFER_REMAIN + 1
+000BFCr 2  F0 20          beq @AsciiSaveDone
+000BFEr 2                 ; Send data bytes (Y stays 0, pointer is advanced each byte)
+000BFEr 2  A0 00          ldy #$00
+000C00r 2               @AsciiSaveByte:
+000C00r 2  B1 2A          lda (XFER_PTR),y
+000C02r 2  20 rr rr       jsr SerialChrout
+000C05r 2                 ; Advance read pointer
+000C05r 2  E6 2A          inc XFER_PTR
+000C07r 2  D0 02          bne @AsciiSaveNoPage
+000C09r 2  E6 2B          inc XFER_PTR + 1
+000C0Br 2               @AsciiSaveNoPage:
+000C0Br 2                 ; Decrement remaining count
+000C0Br 2  AD 17 03       lda XFER_REMAIN
+000C0Er 2  D0 03          bne @AsciiSaveDecLo
+000C10r 2  CE 18 03       dec XFER_REMAIN + 1
+000C13r 2               @AsciiSaveDecLo:
+000C13r 2  CE 17 03       dec XFER_REMAIN
+000C16r 2                 ; Check if done
+000C16r 2  AD 17 03       lda XFER_REMAIN
+000C19r 2  0D 18 03       ora XFER_REMAIN + 1
+000C1Cr 2  D0 E2          bne @AsciiSaveByte
+000C1Er 2               @AsciiSaveDone:
+000C1Er 2                 ; Restore IO_MODE
+000C1Er 2  AD 19 03       lda XFER_IO_SAVE
+000C21r 2  8D 06 03       sta IO_MODE
+000C24r 2  18             clc                           ; Success
+000C25r 2  60             rts
+000C26r 2               
+000C26r 2               ; Draw the splash screen
+000C26r 2               ; Uses video output to display centered title and boot menu
+000C26r 2               ; Modifies: Flags, A, X, Y
+000C26r 2               Splash:
+000C26r 2  20 rr rr       jsr VideoClear                ; Clear the video screen
+000C29r 2                 ; Position cursor at row 10, col 10 for title
+000C29r 2  A2 0A          ldx #10
+000C2Br 2  A0 0A          ldy #10
+000C2Dr 2  20 rr rr       jsr VideoSetCursor
+000C30r 2  A9 rr          lda #<@SplashTitle
+000C32r 2  85 02          sta STR_PTR
+000C34r 2  A9 rr          lda #>@SplashTitle
+000C36r 2  85 03          sta STR_PTR + 1
+000C38r 2  20 rr rr       jsr VideoPrintStrImpl
+000C3Br 2                 ; Position cursor at row 12, col 8 for boot menu (centered: (40-24)/2 = 8)
+000C3Br 2  A2 08          ldx #8
+000C3Dr 2  A0 0C          ldy #12
+000C3Fr 2  20 rr rr       jsr VideoSetCursor
+000C42r 2  A9 rr          lda #<@SplashMenu
+000C44r 2  85 02          sta STR_PTR
+000C46r 2  A9 rr          lda #>@SplashMenu
+000C48r 2  85 03          sta STR_PTR + 1
+000C4Ar 2  20 rr rr       jsr VideoPrintStrImpl
+000C4Dr 2  60             rts
+000C4Er 2  2D 2D 20 54  @SplashTitle: .asciiz "-- The 'COB' v1.0 --"
+000C52r 2  68 65 20 27  
+000C56r 2  43 4F 42 27  
+000C63r 2  45 4E 54 45  @SplashMenu:  .asciiz "ENTER=BASIC  ESC=MONITOR"
+000C67r 2  52 3D 42 41  
+000C6Br 2  53 49 43 20  
+000C7Cr 2               
+000C7Cr 2               ; NMI Handler
+000C7Cr 2               Nmi:
+000C7Cr 2  40             rti
+000C7Dr 2               
+000C7Dr 2               ; BRK Handler — saves full CPU state and enters monitor
+000C7Dr 2               ; On entry from @IrqBrk: A/X/Y are the user's original values (restored by IRQ handler).
+000C7Dr 2               ; The CPU's hardware push left P/PCL/PCH on the stack.
+000C7Dr 2               Break:
+000C7Dr 2  8D 13 03       sta BRK_A                     ; Save user's A register
+000C80r 2  8E 14 03       stx BRK_X                     ; Save user's X register
+000C83r 2  8C 15 03       sty BRK_Y                     ; Save user's Y register
+000C86r 2  BA             tsx                           ; Get current SP
+000C87r 2  8E 16 03       stx BRK_SP                   ; Save SP (points below P/PCL/PCH on stack)
+000C8Ar 2  68             pla                           ; Pull saved P
+000C8Br 2  8D 10 03       sta BRK_P
+000C8Er 2  68             pla                           ; Pull saved PCL (PC+2)
+000C8Fr 2  8D 11 03       sta BRK_PCL
+000C92r 2  68             pla                           ; Pull saved PCH
+000C93r 2  8D 12 03       sta BRK_PCH
+000C96r 2  4C rr rr       jmp MonitorBrkEntry
 000C99r 2               
-000C99r 2               ; Reset Vector
-000C99r 2               ResetVec:
-000C99r 2  4C rr rr       jmp Reset                     ; Initialize the system
-000C9Cr 2               
-000C9Cr 2               ; IRQ Vector
-000C9Cr 2               IrqVec:
-000C9Cr 2  6C 00 03       jmp (IRQ_PTR)                 ; Indirect jump through IRQ pointer to the IRQ handler
-000C9Fr 2               
-000C9Fr 1               .segment "CHARS"
+000C99r 2               ; IRQ Handler
+000C99r 2               Irq:
+000C99r 2  48             pha
+000C9Ar 2  5A             phy
+000C9Br 2  DA             phx
+000C9Cr 2  BA             tsx                           ; Get stack pointer to check saved status register
+000C9Dr 2  BD 04 01       lda $104,x                    ; Load saved P (SP+4: past X, Y, A we pushed)
+000CA0r 2  29 10          and #$10                      ; Test B flag — set by BRK, clear by hardware IRQ
+000CA2r 2  D0 3B          bne @IrqBrk                   ; Branch if this was a BRK instruction
+000CA4r 2               @IrqSc:
+000CA4r 2  AD 01 90       lda SC_STATUS
+000CA7r 2  29 80          and #SC_STATUS_IRQ            ; Check if serial data caused the interrupt
+000CA9r 2  F0 14          beq @IrqCheckKB               ; If not, check keyboard
+000CABr 2  AD 00 90       lda SC_DATA                   ; Read the data from serial register
+000CAEr 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
+000CB1r 2  20 rr rr       jsr BufferSize
+000CB4r 2  C9 F0          cmp #$F0                      ; Is the buffer almost full?
+000CB6r 2  90 23          bcc @IrqExit                  ; If not, exit
+000CB8r 2  A9 01          lda #$01                      ; No parity, no echo, RTSB high, TX interrupts disabled, RX interrupts enabled
+000CBAr 2  8D 02 90       sta SC_CMD                    ; Otherwise, signal not ready for receiving (RTSB high)
+000CBDr 2  80 1C          bra @IrqExit
+000CBFr 2               @IrqCheckKB:
+000CBFr 2  AD 0D 94       lda GPIO_IFR
+000CC2r 2  29 10          and #GPIO_INT_CB1             ; Check if CB1 (matrix keyboard data ready) caused the interrupt
+000CC4r 2  F0 08          beq @IrqCheckPS2              ; If not, check PS/2 keyboard
+000CC6r 2  AD 00 94       lda GPIO_PORTB                ; Read ASCII byte from matrix keyboard (also clears CB1 IFR flag)
+000CC9r 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
+000CCCr 2  80 0D          bra @IrqExit
+000CCEr 2               @IrqCheckPS2:
+000CCEr 2  AD 0D 94       lda GPIO_IFR
+000CD1r 2  29 02          and #GPIO_INT_CA1             ; Check if CA1 (PS/2 keyboard data ready) caused the interrupt
+000CD3r 2  F0 06          beq @IrqExit                  ; If not, exit
+000CD5r 2  AD 01 94       lda GPIO_PORTA                ; Read ASCII byte from PS/2 keyboard (also clears CA1 IFR flag)
+000CD8r 2  20 rr rr       jsr WriteBuffer               ; Store to the input buffer
+000CDBr 2               @IrqExit:
+000CDBr 2  FA             plx
+000CDCr 2  7A             ply
+000CDDr 2  68             pla
+000CDEr 2  40             rti
+000CDFr 2               @IrqBrk:
+000CDFr 2  FA             plx                           ; Restore saved registers
+000CE0r 2  7A             ply
+000CE1r 2  68             pla
+000CE2r 2  58             cli                           ; Re-enable interrupts — abandoning interrupt context
+000CE3r 2  6C 02 03       jmp (BRK_PTR)                 ; BRK — dispatch with P/PCL/PCH still on stack
+000CE6r 2               
+000CE6r 2               ; NMI Vector
+000CE6r 2               NmiVec:
+000CE6r 2  6C 04 03       jmp (NMI_PTR)                 ; Indirect jump through NMI pointer to the NMI handler
+000CE9r 2               
+000CE9r 2               ; Reset Vector
+000CE9r 2               ResetVec:
+000CE9r 2  4C rr rr       jmp Reset                     ; Initialize the system
+000CECr 2               
+000CECr 2               ; IRQ Vector
+000CECr 2               IrqVec:
+000CECr 2  6C 00 03       jmp (IRQ_PTR)                 ; Indirect jump through IRQ pointer to the IRQ handler
+000CEFr 2               
+000CEFr 1               .segment "CHARS"
 000000r 1               .include "Chars.asm"
 000000r 2               ; IBM Code Page 437 Character Set
 000000r 2               ; 6x8 pixel font in 8x8 area, 8 bytes per character (256 characters total)
