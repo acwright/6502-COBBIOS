@@ -122,6 +122,7 @@ TOK_WAIT            = $AB
 TOK_PAUSE           = $AC
 TOK_BANK            = $AD
 TOK_SGN             = $AE
+TOK_CHR             = $AF
 
 ; Multi-char operator tokens
 TOK_GE              = $9A               ; >=
@@ -2273,6 +2274,18 @@ BasExprPrimary:
   rts
 @NotSgn:
 
+  ; CHR(n) — return value (identity in expression context)
+  cmp #TOK_CHR
+  bne @NotChr
+  jsr BasAdvTxtPtr               ; skip TOK_CHR
+  lda #CH_LPAREN
+  jsr BasExpectChar
+  jsr BasExpr                    ; n -> BAS_ACC
+  lda #CH_RPAREN
+  jsr BasExpectChar
+  rts                            ; BAS_ACC already holds n
+@NotChr:
+
   ; Hex literal $xxxx
   cmp #'$'
   bne @NotHex
@@ -2676,6 +2689,10 @@ BasCmdPrint:
   cmp #CH_QUOTE
   beq @PrintString
 
+  ; CHR(n) — output character directly
+  cmp #TOK_CHR
+  beq @PrintChr
+
   ; Otherwise evaluate expression and print number
   jsr BasExpr
   jsr BasPrintInt
@@ -2693,6 +2710,17 @@ BasCmdPrint:
   bra @PrintStrCh
 @PrintStrEnd:
   jsr BasAdvTxtPtr               ; Skip closing quote
+  bra @PrintSep
+
+@PrintChr:
+  jsr BasAdvTxtPtr               ; Skip TOK_CHR
+  lda #CH_LPAREN
+  jsr BasExpectChar
+  jsr BasExpr                    ; n -> BAS_ACC
+  lda #CH_RPAREN
+  jsr BasExpectChar
+  lda BAS_ACC                    ; Output low byte as character
+  jsr VideoChroutRaw             ; Raw output — no control-code interception
 
 @PrintSep:
   jsr BasSkipSpaces
@@ -3856,6 +3884,7 @@ BasKeywordTable:
   .byte "VOL",    $00, TOK_VOL
   .byte "JOY",    $00, TOK_JOY
   .byte "SGN",    $00, TOK_SGN
+  .byte "CHR",    $00, TOK_CHR
   .byte "IF",     $00, TOK_IF
   .byte "TO",     $00, TOK_TO
   .byte "OR",     $00, TOK_OR

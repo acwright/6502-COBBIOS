@@ -44,9 +44,10 @@ FsDeleteFile:   jmp FsDeleteFileImpl    ; $A063 - Delete file from CF
 SysDelay:       jmp SysDelayImpl        ; $A066 - Delay A=cnt_lo, X=cnt_hi centiseconds
 SidSetVolume:   jmp SidSetVolumeImpl    ; $A069 - Set SID master volume (A=0-15)
 VideoSetColor:  jmp VideoSetColorImpl   ; $A06C - Set TMS9918 text color (A=reg7 byte: hi=fg, lo=bg)
+VideoChroutRaw: jmp VideoChroutRawImpl  ; $A06F - Output char to video (raw, no control-code handling)
 
-; Reserved entries ($A06F-$A0FE)
-.repeat 48
+; Reserved entries ($A072-$A0FE)
+.repeat 47
                 jmp UnimplementedStub
 .endrepeat
 .byte $00                             ; Pad to 256 bytes ($A0FF)
@@ -362,6 +363,42 @@ VideoChroutImpl:
 @VideoBEL:
   jsr Beep
   bra @VideoChroutDone
+
+; VideoChroutRaw — Output character to video (raw, no control-code handling)
+; Always writes the character glyph at the cursor position and advances.
+; Input: A = character code (0-255)
+; Preserves: A, X, Y
+; Modifies: Flags
+VideoChroutRawImpl:
+  pha
+  phx
+  phy
+  jsr VideoPutChar              ; Write char to VRAM at cursor
+  inc VID_CURSOR_X
+  inc VID_CURSOR_ADDR
+  bne @RawCheckWrap
+  inc VID_CURSOR_ADDR + 1
+@RawCheckWrap:
+  lda VID_CURSOR_X
+  cmp #40                       ; Past last column?
+  bcc @RawDone
+  stz VID_CURSOR_X
+  inc VID_CURSOR_Y
+  lda VID_CURSOR_Y
+  cmp #24                       ; Past last row?
+  bcc @RawRecalc
+  jsr VideoScroll
+  lda #23
+  sta VID_CURSOR_Y
+@RawRecalc:
+  ldx VID_CURSOR_X
+  ldy VID_CURSOR_Y
+  jsr VideoSetCursor
+@RawDone:
+  ply
+  plx
+  pla
+  rts
 
 ; VideoPrintStr — Print null-terminated string to video
 ; Input: STR_PTR ($02-$03) points to string

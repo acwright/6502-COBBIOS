@@ -106,6 +106,7 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 
 | Function / Literal | Returns |
 |--------------------|---------|
+| `CHR(<n>)` | In `PRINT`, outputs the CP437 character glyph for code `n` directly (bypasses control-code handling, so `CHR($07)` draws the bullet glyph instead of beeping). In expressions, returns `n` unchanged |
 | `JOY(1)` / `JOY(2)` | Joystick bitmask byte for port 1 or 2 (R-L-D-U-Y-X-B-A) |
 | `SGN(<x>)` | Sign of x: `1`, `0`, or `-1` |
 | `$xxxx` | Hexadecimal integer literal (e.g. `$FF` = 255, `$1000` = 4096) |
@@ -265,6 +266,7 @@ All public Kernal entry points are accessed through stable 3-byte `jmp` slots. C
 | `$A066` | `SysDelay` | Delay `A`=count\_lo, `X`=count\_hi centiseconds (~10 ms each) using VIA T1 |
 | `$A069` | `SidSetVolume` | Set SID master volume: `A`=0–15 |
 | `$A06C` | `VideoSetColor` | Set TMS9918 text colour register: `A`=`(fg<<4)\|bg` |
+| `$A06F` | `VideoChroutRaw` | Output character glyph at cursor (raw, no control-code handling): `A`=char code |
 
 ---
 
