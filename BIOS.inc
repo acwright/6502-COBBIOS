@@ -10,7 +10,7 @@ STR_PTR             := $02               ; $02-$03 - String pointer (2 bytes)
 ; $04-$23 reserved by BASIC interpreter
 CF_BUF_PTR          := $24               ; $24-$25 - CF sector data buffer pointer (2 bytes)
 CF_LBA              := $26               ; $26-$29 - CF 28-bit LBA address (4 bytes, little-endian)
-HEX_PTR             := $2A               ; $2A-$2B - Intel HEX load/save data pointer (2 bytes)
+XFER_PTR            := $2A               ; $2A-$2B - Serial transfer data pointer (2 bytes)
 
 ; Stack
 STACK               := $0100             ; $0100-$01FF
@@ -29,16 +29,13 @@ VID_CURSOR_Y        := $0308             ; Video cursor row (0-23)
 VID_CURSOR_ADDR     := $0309             ; Video cursor VRAM address ($0309-$030A)
 RTC_BUF_CENT        := $030B             ; Century value from last RtcReadDate / for RtcWriteDate
 RTC_TMP             := $030C             ; Scratch byte for BCD conversion
-; Intel HEX LOAD/SAVE temp vars ($030D-$030F)
-HEX_CHKSUM          := $030D             ; Running checksum for Intel HEX record
-HEX_BYTECNT         := $030E             ; Byte count for current Intel HEX record
-HEX_RECTYPE         := $030F             ; Record type for current Intel HEX record
+                                         ; $030D-$030F Reserved
 BRK_P               := $0310             ; Saved P at time of BRK
 BRK_PCL             := $0311             ; Saved PCL at time of BRK (points to BRK+2)
 BRK_PCH             := $0312             ; Saved PCH at time of BRK
                                          ; $0313-$0316 Reserved
-HEX_REMAIN          := $0317             ; $0317-$0318 - Remaining bytes to save (2 bytes)
-HEX_IO_SAVE         := $0319             ; Saved IO_MODE before switching to serial
+XFER_REMAIN         := $0317             ; $0317-$0318 - Remaining bytes to transfer (2 bytes)
+XFER_IO_SAVE        := $0319             ; Saved IO_MODE before switching to serial
                                          ; $031A-$031F Reserved
 SCROLL_BUF          := $0320             ; $0320-$0347 - 40-byte scroll temp buffer
 ; Filesystem temp vars ($0348+)

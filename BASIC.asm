@@ -3067,20 +3067,20 @@ BasCmdSys:
 
 ; --- LOAD ---
 ; LOAD "filename" — Load from CF filesystem
-; LOAD (no arg)   — Load via serial Intel HEX
+; LOAD (no arg)   — Load via serial ASCII transfer
 BasCmdLoad:
   jsr BasSkipSpaces
   jsr BasGetTokChar
   cmp #CH_QUOTE
   beq @LoadCF
 
-  ; No filename — serial Intel HEX load
-  jsr HexLoad
+  ; No filename — serial ASCII load
+  jsr AsciiLoad
   bcs @LoadErr
-  ; Update BAS_PRGEND from HEX_PTR (points past last byte written)
-  lda HEX_PTR
+  ; Update BAS_PRGEND from XFER_PTR (points past last byte written)
+  lda XFER_PTR
   sta BAS_PRGEND
-  lda HEX_PTR + 1
+  lda XFER_PTR + 1
   sta BAS_PRGEND + 1
   rts
 
@@ -3130,15 +3130,15 @@ BasCmdLoad:
 
 ; --- SAVE ---
 ; SAVE "filename" — Save to CF filesystem
-; SAVE (no arg)   — Save via serial Intel HEX
+; SAVE (no arg)   — Save via serial ASCII transfer
 BasCmdSave:
   jsr BasSkipSpaces
   jsr BasGetTokChar
   cmp #CH_QUOTE
   beq @SaveCF
 
-  ; No filename — serial Intel HEX save
-  jsr HexSave
+  ; No filename — serial ASCII save
+  jsr AsciiSave
   rts
 
 @SaveCF:

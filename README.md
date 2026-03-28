@@ -28,8 +28,8 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 | `SYS <addr>` | Call a machine-code routine at the given address; `RTS` returns to BASIC |
 | `LOAD "name"` | Load a named file from CompactFlash into program space (`$0800`) |
 | `SAVE "name"` | Save the current BASIC program to CompactFlash |
-| `LOAD` (no arg) | Receive an Intel HEX file over the serial port |
-| `SAVE` (no arg) | Transmit the current program as Intel HEX over the serial port |
+| `LOAD` (no arg) | Receive a program over the serial port (raw binary) |
+| `SAVE` (no arg) | Transmit the current program over the serial port (raw binary) |
 | `DIR` | List all files stored on CompactFlash |
 
 ### Video
@@ -53,9 +53,9 @@ Bit:  7   6   5   4   3   2   1   0
 
 A simple flat filesystem is stored on a CompactFlash card (true 8-bit IDE). The directory lives at LBA 0 and holds up to 16 entries (8.3 filenames). Data sectors follow contiguously per file. `LOAD`, `SAVE`, and `DIR` in BASIC all use this filesystem.
 
-### Serial I/O & Intel HEX
+### Serial I/O & ASCII Transfer
 
-A 6551 ACIA provides a serial port at 19200 baud (8-N-1). The `IO_MODE` Kernal variable selects whether `Chrout` routes to video or serial. `LOAD`/`SAVE` without a filename switch to serial mode and exchange programs in standard Intel HEX format (`:LLAAAATT[DD...]CC`).
+A 6551 ACIA provides a serial port at 19200 baud (8-N-1). The `IO_MODE` Kernal variable selects whether `Chrout` routes to video or serial. `LOAD`/`SAVE` without a filename switch to serial mode and exchange programs as raw binary data: a 2-byte size header (low byte first) followed by the program bytes.
 
 ### Real-Time Clock
 
@@ -130,8 +130,8 @@ All public Kernal entry points are accessed through stable 3-byte `jmp` slots. C
 | `$A04E` | `StWaitReady` | Wait for CF ready; carry set on error |
 | `$A051` | `SetIOMode` | Set `IO_MODE`: `A`=0 (video) or 1 (serial) |
 | `$A054` | `GetIOMode` | Get `IO_MODE` → `A` |
-| `$A057` | `HexLoad` | Receive Intel HEX over serial into `$0800` |
-| `$A05A` | `HexSave` | Send current program as Intel HEX over serial |
+| `$A057` | `AsciiLoad` | Receive raw binary over serial into `$0800` |
+| `$A05A` | `AsciiSave` | Send current program as raw binary over serial |
 
 ---
 

@@ -35,8 +35,8 @@ StWriteSector:  jmp StWriteSectorImpl   ; $A04B - Write CF sector
 StWaitReady:    jmp StWaitReadyImpl     ; $A04E - Wait CF ready
 SetIOMode:      jmp SetIOModeImpl       ; $A051 - Set IO_MODE
 GetIOMode:      jmp GetIOModeImpl       ; $A054 - Get IO_MODE
-HexLoad:        jmp HexLoadImpl         ; $A057 - Load Intel HEX via serial
-HexSave:        jmp HexSaveImpl         ; $A05A - Save Intel HEX via serial
+AsciiLoad:      jmp AsciiLoadImpl       ; $A057 - Load raw binary via serial
+AsciiSave:      jmp AsciiSaveImpl       ; $A05A - Save raw binary via serial
 SidPlayNote:    jmp SidPlayNoteImpl     ; $A05D - Play note (A=voice, X=freqLo, Y=freqHi)
 SidSilence:     jmp SidSilenceImpl      ; $A060 - Silence all voices
 
@@ -1595,138 +1595,22 @@ FsSaveFile:
   sec
   rts
 
-; === Serial Intel HEX LOAD/SAVE ===
-; Intel HEX record format: :LLAAAATT[DD...]CC
-;   : = start code
-;   LL = byte count (2 hex digits)
-;   AAAA = address (4 hex digits, big-endian)
-;   TT = record type (00=data, 01=EOF)
-;   DD = data bytes (2 hex digits each)
-;   CC = checksum (two's complement of sum of all bytes LL..DD)
+; === Serial ASCII LOAD/SAVE ===
+; Plain binary transfer protocol over serial
+; Load: receives 2-byte size (lo/hi) then raw data bytes into PROGRAM_START
+; Save: sends 2-byte size (lo/hi) then raw data bytes from PROGRAM_START
 
-; --- Hex Conversion Utilities ---
+; --- ASCII Load ---
 
-; HexToNibble — Convert ASCII hex char to 4-bit value
-; Input: A = ASCII hex character ('0'-'9', 'A'-'F', 'a'-'f')
-; Output: A = 0-15, Carry clear = valid, Carry set = invalid
-; Modifies: Flags
-HexToNibble:
-  cmp #'0'
-  bcc @HexNibInvalid
-  cmp #'9' + 1
-  bcc @HexNibDigit              ; '0'-'9'
-  cmp #'A'
-  bcc @HexNibInvalid
-  cmp #'F' + 1
-  bcc @HexNibAlpha              ; 'A'-'F'
-  cmp #'a'
-  bcc @HexNibInvalid
-  cmp #'f' + 1
-  bcs @HexNibInvalid
-  ; 'a'-'f': subtract $57 to get 10-15
-  sec
-  sbc #$57
-  clc
-  rts
-@HexNibDigit:
-  sec
-  sbc #'0'                      ; Convert '0'-'9' → 0-9
-  clc
-  rts
-@HexNibAlpha:
-  sec
-  sbc #$37                      ; Convert 'A'-'F' → 10-15
-  clc
-  rts
-@HexNibInvalid:
-  sec
-  rts
-
-; NibbleToHex — Convert 4-bit value to ASCII hex character
-; Input: A = value (low nibble only, 0-15)
-; Output: A = ASCII hex character ('0'-'9', 'A'-'F')
-; Modifies: Flags
-NibbleToHex:
-  and #$0F
-  cmp #$0A
-  bcc @NibHexDigit
-  clc
-  adc #$37                      ; 10-15 → 'A'-'F'
-  rts
-@NibHexDigit:
-  clc
-  adc #'0'                      ; 0-9 → '0'-'9'
-  rts
-
-; SerialPrintHexByte — Print a byte as 2 hex ASCII chars to serial
-; Input: A = byte to print
-; Modifies: Flags, A
-SerialPrintHexByte:
-  pha
-  lsr a                         ; Shift high nibble down
-  lsr a
-  lsr a
-  lsr a
-  jsr NibbleToHex
-  jsr SerialChrout              ; Print high nibble
-  pla
-  pha
-  jsr NibbleToHex               ; Low nibble (and #$0F inside NibbleToHex)
-  jsr SerialChrout              ; Print low nibble
-  pla
-  rts
-
-; SerialReadHexByte — Read 2 hex ASCII chars from serial, return byte
-; Blocks until 2 valid hex chars received
-; Output: A = byte value, Carry clear = success, Carry set = invalid char
-; Also adds result to HEX_CHKSUM
-; Modifies: Flags, A
-SerialReadHexByte:
-  ; Wait for first hex char (high nibble)
-@SrHexWait1:
-  jsr BufferSize
-  beq @SrHexWait1
-  jsr ReadBuffer
-  jsr HexToNibble
-  bcs @SrHexErr                 ; Invalid hex char
-  asl a                         ; Shift to high nibble
-  asl a
-  asl a
-  asl a
-  sta HEX_RECTYPE               ; Temp storage for high nibble (reuse HEX_RECTYPE briefly)
-  ; Wait for second hex char (low nibble)
-@SrHexWait2:
-  jsr BufferSize
-  beq @SrHexWait2
-  jsr ReadBuffer
-  jsr HexToNibble
-  bcs @SrHexErr
-  ora HEX_RECTYPE               ; Combine high and low nibbles
-  ; Add to running checksum
-  pha
-  clc
-  adc HEX_CHKSUM
-  sta HEX_CHKSUM
-  pla
-  clc                           ; Success
-  rts
-@SrHexErr:
-  sec
-  rts
-
-; --- Intel HEX Load ---
-
-; HexLoadImpl — Receive Intel HEX records via serial and write to memory
-; Switches IO_MODE to serial, parses records, validates checksums
-; On data records (type $00): writes bytes to addresses specified in records
-; On EOF record (type $01): finishes loading
-; Output: Carry clear = success, Carry set = error (checksum fail or parse error)
-;         On success, HEX_ADDR contains the last address written + 1
+; AsciiLoadImpl — Receive raw binary data via serial into program memory
+; Switches IO_MODE to serial, receives 2-byte size then raw data bytes
+; Data is written starting at PROGRAM_START ($0800)
+; Output: Carry clear = success, XFER_PTR points past last byte written
 ; Modifies: Flags, A, X, Y
-HexLoadImpl:
+AsciiLoadImpl:
   ; Save and switch IO_MODE to serial
   lda IO_MODE
-  sta HEX_IO_SAVE
+  sta XFER_IO_SAVE
   lda #$01                      ; Serial mode
   sta IO_MODE
   ; Print prompt
@@ -1734,108 +1618,69 @@ HexLoadImpl:
   jsr SerialChrout
   lda #$0A
   jsr SerialChrout
-  lda #<@HexLoadMsg
+  lda #<@AsciiLoadMsg
   sta STR_PTR
-  lda #>@HexLoadMsg
+  lda #>@AsciiLoadMsg
   sta STR_PTR + 1
   jsr @SerialPrintStr
-
-@HexLoadRecord:
-  ; Wait for start code ':'
-@HexWaitColon:
+  ; Read 2-byte size (low byte first)
+@AsciiWaitSzLo:
   jsr BufferSize
-  beq @HexWaitColon
+  beq @AsciiWaitSzLo
   jsr ReadBuffer
-  cmp #':'
-  bne @HexWaitColon             ; Ignore chars until ':'
-  ; Reset checksum
-  stz HEX_CHKSUM
-  ; Read byte count (LL)
-  jsr SerialReadHexByte
-  bcs @HexLoadFail
-  sta HEX_BYTECNT
-  ; Read address high byte (AA)
-  jsr SerialReadHexByte
-  bcs @HexLoadFail
-  sta HEX_PTR + 1
-  ; Read address low byte (AA)
-  jsr SerialReadHexByte
-  bcs @HexLoadFail
-  sta HEX_PTR
-  ; Read record type (TT)
-  jsr SerialReadHexByte
-  bcs @HexLoadFail
-  sta HEX_RECTYPE
-  ; Check record type
-  cmp #$01                      ; EOF record?
-  beq @HexLoadEOF
-  cmp #$00                      ; Data record?
-  bne @HexLoadFail              ; Unknown record type — error
-  ; Data record — read data bytes
+  sta XFER_REMAIN
+@AsciiWaitSzHi:
+  jsr BufferSize
+  beq @AsciiWaitSzHi
+  jsr ReadBuffer
+  sta XFER_REMAIN + 1
+  ; Initialize write pointer to PROGRAM_START
+  lda #<PROGRAM_START
+  sta XFER_PTR
+  lda #>PROGRAM_START
+  sta XFER_PTR + 1
+  ; Check for zero-length transfer
+  lda XFER_REMAIN
+  ora XFER_REMAIN + 1
+  beq @AsciiLoadOk
+  ; Receive data bytes (Y stays 0, pointer is advanced each byte)
   ldy #$00
-@HexLoadData:
-  cpy HEX_BYTECNT
-  beq @HexLoadChecksum          ; All data bytes read
-  jsr SerialReadHexByte
-  bcs @HexLoadFail
-  sta (HEX_PTR),y               ; Write byte to target address
-  iny
-  bra @HexLoadData
-@HexLoadChecksum:
-  ; Read checksum byte
-  jsr SerialReadHexByte
-  bcs @HexLoadFail
-  ; Verify: running checksum (including checksum byte) should be $00
-  lda HEX_CHKSUM
-  bne @HexLoadFail              ; Checksum error
-  ; Advance HEX_PTR by byte count for tracking end position
-  lda HEX_PTR
-  clc
-  adc HEX_BYTECNT
-  sta HEX_PTR
-  bcc @HexLoadNoCarry
-  inc HEX_PTR + 1
-@HexLoadNoCarry:
-  ; Print '.' progress indicator
-  lda #'.'
-  jsr SerialChrout
-  bra @HexLoadRecord            ; Next record
-@HexLoadEOF:
-  ; EOF record — read and verify checksum
-  jsr SerialReadHexByte
-  bcs @HexLoadFail
-  lda HEX_CHKSUM
-  bne @HexLoadFail              ; Checksum error on EOF
+@AsciiLoadByte:
+  jsr BufferSize
+  beq @AsciiLoadByte
+  jsr ReadBuffer
+  sta (XFER_PTR),y              ; Write byte to target address
+  ; Advance write pointer
+  inc XFER_PTR
+  bne @AsciiLoadNoPage
+  inc XFER_PTR + 1
+@AsciiLoadNoPage:
+  ; Decrement remaining count
+  lda XFER_REMAIN
+  bne @AsciiLoadDecLo
+  dec XFER_REMAIN + 1
+@AsciiLoadDecLo:
+  dec XFER_REMAIN
+  ; Check if done
+  lda XFER_REMAIN
+  ora XFER_REMAIN + 1
+  bne @AsciiLoadByte
+@AsciiLoadOk:
+  ; XFER_PTR now points past last byte written
   ; Print success message
   lda #$0D
   jsr SerialChrout
   lda #$0A
   jsr SerialChrout
-  lda #<@HexOkMsg
+  lda #<@AsciiOkMsg
   sta STR_PTR
-  lda #>@HexOkMsg
+  lda #>@AsciiOkMsg
   sta STR_PTR + 1
   jsr @SerialPrintStr
   ; Restore IO_MODE
-  lda HEX_IO_SAVE
+  lda XFER_IO_SAVE
   sta IO_MODE
   clc                           ; Success
-  rts
-@HexLoadFail:
-  ; Print error message
-  lda #$0D
-  jsr SerialChrout
-  lda #$0A
-  jsr SerialChrout
-  lda #<@HexErrMsg
-  sta STR_PTR
-  lda #>@HexErrMsg
-  sta STR_PTR + 1
-  jsr @SerialPrintStr
-  ; Restore IO_MODE
-  lda HEX_IO_SAVE
-  sta IO_MODE
-  sec                           ; Error
   rts
 
 ; Internal: print null-terminated string via serial
@@ -1851,156 +1696,66 @@ HexLoadImpl:
 @SerialPrintDone:
   rts
 
-@HexLoadMsg: .asciiz "READY TO RECEIVE"
-@HexOkMsg:   .asciiz "OK"
-@HexErrMsg:  .asciiz "ERROR"
+@AsciiLoadMsg: .asciiz "READY TO RECEIVE"
+@AsciiOkMsg:   .asciiz "OK"
 
-; --- Intel HEX Save ---
+; --- ASCII Save ---
 
-; HexSaveImpl — Transmit program memory as Intel HEX records via serial
-; Generates 16-byte data records from PROGRAM_START ($0800) to BAS_PRGEND
-; Ends with EOF record :00000001FF
+; AsciiSaveImpl — Transmit program memory as raw binary via serial
+; Sends 2-byte size (lo/hi) then raw data bytes from PROGRAM_START to BAS_PRGEND
 ; Output: Carry clear = success
 ; Modifies: Flags, A, X, Y
-HexSaveImpl:
+AsciiSaveImpl:
   ; Save and switch IO_MODE to serial
   lda IO_MODE
-  sta HEX_IO_SAVE
+  sta XFER_IO_SAVE
   lda #$01
   sta IO_MODE
-  ; Print CRLF
-  lda #$0D
-  jsr SerialChrout
-  lda #$0A
-  jsr SerialChrout
   ; Initialize save pointer
   lda #<PROGRAM_START
-  sta HEX_PTR
+  sta XFER_PTR
   lda #>PROGRAM_START
-  sta HEX_PTR + 1
+  sta XFER_PTR + 1
   ; Calculate remaining bytes = BAS_PRGEND - PROGRAM_START
   lda z:BAS_PRGEND
   sec
   sbc #<PROGRAM_START
-  sta HEX_REMAIN
+  sta XFER_REMAIN
   lda z:BAS_PRGEND + 1
   sbc #>PROGRAM_START
-  sta HEX_REMAIN + 1
+  sta XFER_REMAIN + 1
+  ; Send 2-byte size (low byte first)
+  lda XFER_REMAIN
+  jsr SerialChrout
+  lda XFER_REMAIN + 1
+  jsr SerialChrout
   ; Check for zero-length program
-  ora HEX_REMAIN
-  bne @HexSaveRecord
-  jmp @HexSaveEOF
-@HexSaveRecord:
-  ; Determine byte count for this record: min(16, HEX_REMAIN)
-  lda HEX_REMAIN + 1
-  bne @HexSave16                ; High byte > 0, at least 256 remaining
-  lda HEX_REMAIN
-  cmp #17
-  bcc @HexSavePartial           ; Less than 17 bytes, use actual count
-@HexSave16:
-  lda #16
-  bra @HexSaveEmit
-@HexSavePartial:
-  lda HEX_REMAIN                ; Use actual remaining count
-@HexSaveEmit:
-  sta HEX_BYTECNT
-  ; Reset checksum
-  stz HEX_CHKSUM
-  ; Print start code
-  lda #':'
-  jsr SerialChrout
-  ; Print byte count
-  lda HEX_BYTECNT
-  clc
-  adc HEX_CHKSUM
-  sta HEX_CHKSUM
-  lda HEX_BYTECNT
-  jsr SerialPrintHexByte
-  ; Print address (high byte first)
-  lda HEX_PTR + 1
-  clc
-  adc HEX_CHKSUM
-  sta HEX_CHKSUM
-  lda HEX_PTR + 1
-  jsr SerialPrintHexByte
-  ; Address low byte
-  lda HEX_PTR
-  clc
-  adc HEX_CHKSUM
-  sta HEX_CHKSUM
-  lda HEX_PTR
-  jsr SerialPrintHexByte
-  ; Print record type 00 (data)
-  lda #$00
-  jsr SerialPrintHexByte        ; Prints "00", checksum unaffected (adding 0)
-  ; Print data bytes
+  lda XFER_REMAIN
+  ora XFER_REMAIN + 1
+  beq @AsciiSaveDone
+  ; Send data bytes (Y stays 0, pointer is advanced each byte)
   ldy #$00
-@HexSaveData:
-  cpy HEX_BYTECNT
-  beq @HexSaveChksum
-  lda (HEX_PTR),y
-  pha
-  clc
-  adc HEX_CHKSUM
-  sta HEX_CHKSUM
-  pla
-  jsr SerialPrintHexByte
-  iny
-  bra @HexSaveData
-@HexSaveChksum:
-  ; Print checksum = two's complement of running sum
-  lda HEX_CHKSUM
-  eor #$FF
-  clc
-  adc #$01                      ; Two's complement
-  jsr SerialPrintHexByte
-  ; Print CRLF after record
-  lda #$0D
+@AsciiSaveByte:
+  lda (XFER_PTR),y
   jsr SerialChrout
-  lda #$0A
-  jsr SerialChrout
-  ; Advance save pointer
-  lda HEX_PTR
-  clc
-  adc HEX_BYTECNT
-  sta HEX_PTR
-  bcc @HexSaveNoCarry
-  inc HEX_PTR + 1
-@HexSaveNoCarry:
-  ; Subtract from remaining
-  lda HEX_REMAIN
-  sec
-  sbc HEX_BYTECNT
-  sta HEX_REMAIN
-  bcs @HexSaveNoBorrow
-  dec HEX_REMAIN + 1
-@HexSaveNoBorrow:
+  ; Advance read pointer
+  inc XFER_PTR
+  bne @AsciiSaveNoPage
+  inc XFER_PTR + 1
+@AsciiSaveNoPage:
+  ; Decrement remaining count
+  lda XFER_REMAIN
+  bne @AsciiSaveDecLo
+  dec XFER_REMAIN + 1
+@AsciiSaveDecLo:
+  dec XFER_REMAIN
   ; Check if done
-  lda HEX_REMAIN
-  ora HEX_REMAIN + 1
-  beq @HexSaveDone
-  jmp @HexSaveRecord            ; More bytes to send
-@HexSaveDone:
-@HexSaveEOF:
-  ; Send EOF record :00000001FF
-  lda #':'
-  jsr SerialChrout
-  lda #$00
-  jsr SerialPrintHexByte        ; Byte count = 0
-  lda #$00
-  jsr SerialPrintHexByte        ; Address high = 0
-  lda #$00
-  jsr SerialPrintHexByte        ; Address low = 0
-  lda #$01
-  jsr SerialPrintHexByte        ; Type = 01 (EOF)
-  lda #$FF
-  jsr SerialPrintHexByte        ; Checksum = FF
-  lda #$0D
-  jsr SerialChrout
-  lda #$0A
-  jsr SerialChrout
+  lda XFER_REMAIN
+  ora XFER_REMAIN + 1
+  bne @AsciiSaveByte
+@AsciiSaveDone:
   ; Restore IO_MODE
-  lda HEX_IO_SAVE
+  lda XFER_IO_SAVE
   sta IO_MODE
   clc                           ; Success
   rts
