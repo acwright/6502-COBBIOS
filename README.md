@@ -17,7 +17,7 @@ ENTER=BASIC  ESC=MONITOR
 ```
 
 - **ENTER** — launches the Integer BASIC interpreter
-- **ESC** — drops into the Wozmon machine-code monitor
+- **ESC** — drops into the machine-code monitor
 
 ### Integer BASIC
 
@@ -75,6 +75,53 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 
 > **Note on integer range:** BASIC uses signed 16-bit integers (`-32768` to `32767`). Hex literals above `$7FFF` print as negative numbers (e.g. `$A000` = `-24576`).
 
+### Machine Code Monitor
+
+A full-featured Supermon-style machine-code monitor occupies the `$C000–$DFFF` segment. It supports memory inspection, 65C02 disassembly, register manipulation, code execution, CompactFlash and serial file I/O, and number base conversion. The monitor prompt is `.`.
+
+The monitor is entered in three ways:
+- **ESC at boot** — cold entry, prints `MONITOR` banner
+- **BRK from BASIC** — prints `BRK AT $xxxx` and the current register state
+- **Hardware BRK** — any `BRK` opcode in user code enters the monitor with full register display
+
+**Memory Inspection**
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `M` | `M [addr] [addr]` | Hex + ASCII memory dump (8 bytes/line); bare `M` continues from last address |
+| `D` | `D [addr] [addr]` | Disassemble 65C02 instructions (20 lines default); supports the full WDC 65C02 + Rockwell instruction set |
+| `R` | `R` | Display saved CPU registers: `PC=xxxx A=xx X=xx Y=xx SP=xx NV-BDIZC` |
+
+**Memory Manipulation**
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `>` | `> addr byte [byte...]` | Deposit (write) bytes starting at address |
+| `F` | `F addr addr byte` | Fill memory range with a byte value |
+| `T` | `T addr addr dest` | Transfer (copy) a memory block; handles overlapping regions |
+| `H` | `H addr addr byte [byte...]` | Hunt (search) for a byte pattern in a range |
+| `C` | `C addr addr addr` | Compare two memory regions; prints differing addresses |
+
+**Execution Control**
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `G` | `G [addr]` | Go — JMP to address (or saved PC); restores all registers via RTI |
+| `J` | `J [addr]` | JSR — call a subroutine; RTS returns to the monitor with register display |
+| `;` | `; PC xxxx A xx X xx ...` | Modify saved registers (any subset, any order) |
+
+**File I/O & Utilities**
+
+| Command | Syntax | Description |
+|---------|--------|-------------|
+| `L` | `L "file" [addr]` | Load from CompactFlash (with filename) or serial (without) to address (default `$0800`) |
+| `S` | `S "file" addr addr` | Save to CompactFlash (with filename) or serial (without) |
+| `@` | `@` | List CompactFlash directory |
+| `N` | `N value` | Number conversion — hex (`$xx`), decimal (`+ddd`), or binary (`%bbbb`) input shown in all three bases |
+| `X` | `X` | Exit to BASIC |
+
+> **Wozmon easter egg:** The original Apple II Wozmon remains at `$FF00`. Enter it from the monitor with `G FF00` or from BASIC with `SYS $FF00`.
+
 ### Video
 
 Output is displayed on a TMS9918 video chip in 40×24 text mode. The screen scrolls upward automatically when the cursor reaches the bottom. The Kernal tracks cursor position and exposes routines for direct character and cursor manipulation.
@@ -120,7 +167,7 @@ A SID chip provides audio output. The `Beep` Kernal routine plays a ~1000 Hz ton
 | `$A000–$A0FF` | 256B | **Kernal jump table** (public API) |
 | `$A100–$B7FF` | ~6KB | Kernal routines |
 | `$B800–$BFFF` | 2KB | IBM CP437 character set (VRAM init data) |
-| `$C000–$DFFF` | 8KB | Monitor (stub, redirects to Wozmon) |
+| `$C000–$DFFF` | 8KB | Machine-code monitor |
 | `$E000–$FEFF` | ~8KB | Integer BASIC interpreter |
 | `$FF00–$FFF9` | 250B | Wozmon (Apple II machine-code monitor) |
 | `$FFFA–$FFFF` | 6B | CPU vectors (NMI / RESET / IRQ) |

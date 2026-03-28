@@ -1,7 +1,7 @@
 # Plan: Supermon-style Machine Code Monitor
 
 ## TL;DR
-Implement a full-featured machine code monitor in the 8KB MONITOR segment ($C000-$DFFF) inspired by Supermon64's command set. The monitor provides memory inspection/manipulation, 65C02 disassembly, register display/modification, code execution, CF filesystem and serial load/save (reusing Kernal routines), and number conversion. BRK enters the monitor with full register display; X exits back to BASIC. Wozmon remains at $FF00 as an easter egg. Estimated ~4KB of the 8KB budget.
+Implement a full-featured machine code monitor in the 8KB MONITOR segment ($C000-$DFFF) inspired by Supermon64's command set. The monitor provides memory inspection/manipulation, 65C02 disassembly, register display/modification, code execution, unified load/save (CF with filename, serial without — mirroring BASIC's LOAD/SAVE pattern), CF directory listing, and number conversion. BRK enters the monitor with full register display; X exits back to BASIC. Wozmon remains at $FF00 as an easter egg. Estimated ~4KB of the 8KB budget.
 
 ## Command Set
 
@@ -18,10 +18,8 @@ Implement a full-featured machine code monitor in the 8KB MONITOR segment ($C000
 | **;** | `; PC xxxx A xx X xx Y xx SP xx` | Modify registers |
 | **G** | `G [addr]` | Go — JMP to address (or saved PC) |
 | **J** | `J [addr]` | JSR — call subroutine, return to monitor |
-| **L** | `L "file" [addr]` | Load from CompactFlash |
-| **S** | `S "file" addr addr` | Save to CompactFlash |
-| **O** | `O [addr]` | Open serial receive (serial load) |
-| **W** | `W addr addr` | Write serial send (serial save) |
+| **L** | `L ["file"] [addr]` | Load — CF if filename given, serial if not |
+| **S** | `S ["file"] addr addr` | Save — CF if filename given, serial if not |
 | **@** | `@` | CF directory listing |
 | **N** | `N value` | Number conversion (hex/dec/bin) |
 | **X** | `X` | Exit to BASIC |
@@ -213,39 +211,40 @@ Implement a full-featured machine code monitor in the 8KB MONITOR segment ($C000
 
 **Verification:** `> 0800 A9 42 00` deposits LDA #$42 / BRK. `G 0800` → monitor re-enters, R shows A=42. `; A 00` resets A. `J 0800` → same but returns via BRK, shows A=42.
 
-### Phase 5: File I/O & Utilities (L, S, O, W, @, N)
+### Phase 5: File I/O & Utilities (L, S, @, N)
 *Depends on Phase 1. Reuses Kernal routines.*
 
-17. **L command — CF Load**
-    - `L "FILENAME" [ADDR]` — parse filename, call FsParseName, FsFindFile, then multi-sector read loop
-    - If addr specified: set CF_BUF_PTR to that address (override default $0800)
-    - If no addr: load to $0800 (same as BASIC LOAD)
-    - Reuse Kernal FS internal routines (FsParseName, FsFindFile, FsReadDir, StReadSector) — replicate the sector read loop with custom target address since FsLoadFile hardcodes PROGRAM_START
-    - Print "LOADED nnnn BYTES AT $xxxx" on success, "FILE NOT FOUND" on failure
+17. **L command — Load (CF or serial)**
+    - Dispatch: if next non-space char is `"`, use CF path; otherwise use serial path (same pattern as BASIC LOAD/SAVE)
+    - **CF path:** `L "FILENAME" [ADDR]` — parse filename, call FsParseName, FsFindFile, then multi-sector read loop
+      - If addr specified: set CF_BUF_PTR to that address (override default $0800)
+      - If no addr: load to $0800 (same as BASIC LOAD)
+      - Reuse Kernal FS internal routines (FsParseName, FsFindFile, FsReadDir, StReadSector) — replicate the sector read loop with custom target address since FsLoadFile hardcodes PROGRAM_START
+      - Print "LOADED nnnn BYTES AT $xxxx" on success, "FILE NOT FOUND" on failure
+    - **Serial path:** `L [ADDR]` — receive binary via serial (reuse AsciiLoad protocol: 2-byte size header + raw data)
+      - If addr specified: set XFER_PTR to that address
+      - If no addr: load to $0800 (default PROGRAM_START)
+      - Calls AsciiLoad Kernal routine (or adapted version)
+      - Print "LOADED nnnn BYTES AT $xxxx" on success
 
-18. **S command — CF Save**
-    - `S "FILENAME" ADDR1 ADDR2` — save bytes [addr1, addr2) to CF
-    - Compute size = addr2 - addr1
-    - Reuse/adapt FS internals with custom source address and size
-    - Print "SAVED nnnn BYTES" on success
+18. **S command — Save (CF or serial)**
+    - Dispatch: if next non-space char is `"`, use CF path; otherwise use serial path
+    - **CF path:** `S "FILENAME" ADDR1 ADDR2` — save bytes [addr1, addr2) to CF
+      - Compute size = addr2 - addr1
+      - Reuse/adapt FS internals with custom source address and size
+      - Print "SAVED nnnn BYTES" on success
+    - **Serial path:** `S ADDR1 ADDR2` — send binary via serial
+      - Compute size, set XFER_PTR, call AsciiSave Kernal routine (or adapted version)
+      - Print "SAVED nnnn BYTES" on success
 
-19. **O command — Serial receive (load)**
-    - `O [ADDR]` — receive binary via serial (reuse AsciiLoad protocol: 2-byte size header + raw data)
-    - If addr specified: set XFER_PTR to that address
-    - Calls AsciiLoad Kernal routine (or adapted version)
-
-20. **W command — Serial send (save)**
-    - `W ADDR1 ADDR2` — send binary via serial
-    - Compute size, set XFER_PTR, call AsciiSave Kernal routine (or adapted version)
-
-21. **@ command — Directory**
+19. **@ command — Directory**
     - Calls Kernal FsDirectory directly (prints all used entries with name.ext + size)
 
-22. **N command — Number conversion**
+20. **N command — Number conversion**
     - `N $XX` or `N $XXXX` or `N +DDD` or `N %BBBBBBBB` — parse hex, decimal, or binary input
     - Output all three representations: `$XXXX  +DDDDD  %BBBBBBBBBBBBBBBB`
 
-**Verification:** `@` shows CF directory. `S "TEST" 0800 0810` saves 16 bytes, `L "TEST" 0900` loads them at $0900, `C 0800 080F 0900` confirms match. `N $FF` shows `$00FF  +255  %0000000011111111`. Serial O/W tested with serial terminal.
+**Verification:** `@` shows CF directory. `S "TEST" 0800 0810` saves 16 bytes to CF, `L "TEST" 0900` loads them at $0900, `C 0800 080F 0900` confirms match. `S 0800 0810` sends 16 bytes via serial, `L 0900` receives via serial to $0900. `N $FF` shows `$00FF  +255  %0000000011111111`.
 
 ## Files to Modify
 
@@ -266,7 +265,7 @@ Implement a full-featured machine code monitor in the 8KB MONITOR segment ($C000
 4. **Exit to BASIC:** In monitor, type `X` → BASIC welcome banner, previous program intact
 5. **Memory commands:** M, D, >, F, T, H, C all operate correctly on known memory patterns
 6. **Execution:** G/J execute code and return on BRK with correct register state
-7. **File I/O:** L/S round-trip a file on CF; O/W round-trip via serial
+7. **File I/O:** L/S round-trip a file on CF (with quoted filename); L/S round-trip via serial (without filename)
 8. **Wozmon easter egg:** `G FF00` from monitor (or SYS $FF00 from BASIC) enters WozMon
 
 ## Design Decisions
@@ -277,7 +276,7 @@ Implement a full-featured machine code monitor in the 8KB MONITOR segment ($C000
 - **Register format:** Compact single-line: `PC=xxxx A=xx X=xx Y=xx SP=xx NV-BDIZC`
 - **Register modify:** `;` command (`.` is reserved as the prompt character)
 - **Load address:** User-specified (default $0800 if omitted)
-- **Serial I/O:** `O` (receive/open) and `W` (send/write) — distinct from CF L/S
+- **Unified L/S:** Filename in quotes → CF; no filename → serial (mirrors BASIC LOAD/SAVE dispatch)
 - **Exit to BASIC:** `jmp BasColdStart` for clean re-entry (preserves program in memory but re-initializes BASIC state)
 - **Prompt character:** `.` (period) — Supermon style
 - **Line prefix style:** No space between prefix punctuation and hex address. M uses `.:ADDR`, D uses `.,ADDR`. This keeps lines under 40 columns to avoid double-newline from video auto-wrap + CRLF.
@@ -291,7 +290,7 @@ Implement a full-featured machine code monitor in the 8KB MONITOR segment ($C000
 
 1. **BasColdStart vs BasWarmStart for X command:** BasColdStart reinitializes variables and prints banner but preserves the program in memory. A warm return (jumping to BasMainLoop) would preserve variables too but requires BASIC ZP to be undisturbed. Use BasColdStart for safety — monitor doesn't touch BASIC ZP ($04-$23), but a fresh start is more predictable. Could add `XW` (warm exit) later.
 
-2. **L/S Kernal reuse strategy:** BASIC's LOAD/SAVE use internal Kernal labels (FsLoadFile, FsSaveFile) that hardcode PROGRAM_START as the data address. The monitor needs custom addresses, so it should replicate the sector-read/write loop in monitor code using CF_BUF_PTR set to the user's target address. This avoids any Kernal changes while reusing StReadSector/StWriteSector, FsParseName, FsFindFile, FsReadDir/FsWriteDir.
+2. **L/S Kernal reuse strategy:** BASIC's LOAD/SAVE dispatch on the presence of a quoted filename — monitor L/S uses the identical pattern. For CF: BASIC's internal FsLoadFile/FsSaveFile hardcode PROGRAM_START as the data address, so the monitor replicates the sector-read/write loop with CF_BUF_PTR set to the user's target address. For serial: calls AsciiLoad/AsciiSave with XFER_PTR set to the user's target address. This avoids any Kernal changes while reusing StReadSector/StWriteSector, FsParseName, FsFindFile, FsReadDir/FsWriteDir, AsciiLoad, and AsciiSave.
 
 3. **Future phases (not in current plan):**
    - Mini-assembler (A command) — enter 65C02 mnemonics directly

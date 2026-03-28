@@ -287,6 +287,20 @@ MonCmdTable:
   .word MonCmdHunt - 1
   .byte 'C'
   .word MonCmdCompare - 1
+  .byte 'G'
+  .word MonCmdGo - 1
+  .byte 'J'
+  .word MonCmdJsr - 1
+  .byte ';'
+  .word MonCmdModRegs - 1
+  .byte 'L'
+  .word MonCmdLoad - 1
+  .byte 'S'
+  .word MonCmdSave - 1
+  .byte '@'
+  .word MonCmdDir - 1
+  .byte 'N'
+  .word MonCmdNum - 1
   .byte 0                       ; End of table sentinel
 
 ; ============================================================================
@@ -657,6 +671,775 @@ MonCmdCompare:
   pla                           ; Clean up stack
   pla
 @CmpError:
+  jmp MonPrintError
+
+; ============================================================================
+; MonCmdGo — Go (JMP to address with full register restore via RTI)
+; Syntax: G [addr]
+; If addr given, sets BRK_PCL/PCH. Restores A, X, Y, P, SP via RTI.
+; Program runs until BRK returns to monitor or forever.
+; ============================================================================
+
+MonCmdGo:
+  jsr MonSkipSpaces
+  jsr MonParseHex4
+  bcc @GoNoAddr
+  ; Address given — store to BRK_PCL/PCH
+  lda MON_ADDR
+  sta BRK_PCL
+  lda MON_ADDR+1
+  sta BRK_PCH
+@GoNoAddr:
+  sei                           ; Disable interrupts during stack manipulation
+  ; Restore user's stack pointer
+  ; BRK_SP = SP at Break entry (user's original SP - 3 from BRK hardware push)
+  ; We need SP = BRK_SP + 3 before our pushes, so RTI leaves SP at original
+  ldx BRK_SP
+  inx
+  inx
+  inx
+  txs                           ; SP = user's original SP
+  ; Push PCH, PCL, P for RTI (RTI pops P first, then PCL, PCH)
+  lda BRK_PCH
+  pha
+  lda BRK_PCL
+  pha
+  lda BRK_P
+  pha
+  ; Restore registers
+  ldy BRK_Y
+  ldx BRK_X
+  lda BRK_A
+  rti                           ; Pop P, PC → jump to target with full register state
+
+; ============================================================================
+; MonCmdJsr — Call subroutine and return to monitor on RTS
+; Syntax: J [addr]
+; Pushes monitor return address, restores A/X/Y, JMPs to target.
+; When target does RTS, saves registers and re-enters monitor.
+; ============================================================================
+
+MonCmdJsr:
+  jsr MonSkipSpaces
+  jsr MonParseHex4
+  bcc @JsrNoAddr
+  ; Address given — store to BRK_PCL/PCH
+  lda MON_ADDR
+  sta BRK_PCL
+  lda MON_ADDR+1
+  sta BRK_PCH
+@JsrNoAddr:
+  ; Push return address (MonJsrReturn - 1) for RTS trick
+  lda #>(MonJsrReturn - 1)
+  pha
+  lda #<(MonJsrReturn - 1)
+  pha
+  ; Restore registers as inputs to subroutine
+  ldy BRK_Y
+  ldx BRK_X
+  lda BRK_A
+  jmp (BRK_PCL)                 ; Jump to target — its RTS returns to MonJsrReturn
+
+; MonJsrReturn — Landing point when user's subroutine does RTS
+MonJsrReturn:
+  sta BRK_A                     ; Save returned A
+  stx BRK_X                    ; Save returned X
+  sty BRK_Y                    ; Save returned Y
+  php                           ; Push current P
+  pla
+  sta BRK_P                    ; Save processor status
+  tsx
+  stx BRK_SP                   ; Save current stack pointer
+  ; Show registers and re-enter command loop
+  jsr MonShowRegs
+  jmp MonCmdLoop
+
+; ============================================================================
+; MonCmdModRegs — Modify saved CPU registers
+; Syntax: ; PC xxxx A xx X xx Y xx SP xx P xx
+; Any subset, any order. Labels: PC, A, X, Y, SP, P
+; ============================================================================
+
+MonCmdModRegs:
+@ModLoop:
+  jsr MonSkipSpaces
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  bne @ModNotEnd
+  jmp @ModDone                  ; End of line — trampoline (too far for beq)
+@ModNotEnd:
+  ; Convert to uppercase
+  cmp #'a'
+  bcc @ModNoConv
+  cmp #'z'+1
+  bcs @ModNoConv
+  and #$DF
+@ModNoConv:
+  cmp #'P'
+  beq @ModCheckPCorP
+  cmp #'A'
+  beq @ModA
+  cmp #'X'
+  beq @ModX
+  cmp #'Y'
+  beq @ModY
+  cmp #'S'
+  beq @ModCheckSP
+  jmp @ModError                 ; Unknown label — trampoline (too far for bra)
+
+@ModCheckPCorP:
+  ; Could be "PC" (program counter) or "P" (processor status)
+  inc MON_IDX
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  ; Convert to uppercase
+  cmp #'a'
+  bcc @ModPCNoConv
+  cmp #'z'+1
+  bcs @ModPCNoConv
+  and #$DF
+@ModPCNoConv:
+  cmp #'C'
+  beq @ModPC
+  ; It's just 'P' (processor status) — don't advance past the non-'C' char
+  jsr MonSkipSpaces
+  jsr MonParseHex2
+  bcs @ModPOk
+  jmp @ModError
+@ModPOk:
+  sta BRK_P
+  jmp @ModLoop
+
+@ModPC:
+  inc MON_IDX                   ; Advance past 'C'
+  jsr MonSkipSpaces
+  jsr MonParseHex4
+  bcs @ModPCOk
+  jmp @ModError
+@ModPCOk:
+  lda MON_ADDR
+  sta BRK_PCL
+  lda MON_ADDR+1
+  sta BRK_PCH
+  jmp @ModLoop
+
+@ModA:
+  inc MON_IDX                   ; Advance past 'A'
+  jsr MonSkipSpaces
+  jsr MonParseHex2
+  bcs @ModAOk
+  jmp @ModError
+@ModAOk:
+  sta BRK_A
+  jmp @ModLoop
+
+@ModX:
+  inc MON_IDX                   ; Advance past 'X'
+  jsr MonSkipSpaces
+  jsr MonParseHex2
+  bcs @ModXOk
+  jmp @ModError
+@ModXOk:
+  sta BRK_X
+  jmp @ModLoop
+
+@ModY:
+  inc MON_IDX                   ; Advance past 'Y'
+  jsr MonSkipSpaces
+  jsr MonParseHex2
+  bcs @ModYOk
+  jmp @ModError
+@ModYOk:
+  sta BRK_Y
+  jmp @ModLoop
+
+@ModCheckSP:
+  ; Expect "SP" — must see 'P' next
+  inc MON_IDX
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  cmp #'P'
+  beq @ModSPGotP
+  cmp #'p'
+  beq @ModSPGotP
+  jmp @ModError                 ; Just 'S' alone is invalid
+@ModSPGotP:
+  inc MON_IDX                   ; Advance past 'P'
+  jsr MonSkipSpaces
+  jsr MonParseHex2
+  bcs @ModSPOk
+  jmp @ModError
+@ModSPOk:
+  sta BRK_SP
+  jmp @ModLoop
+
+@ModError:
+  jmp MonPrintError
+@ModDone:
+  ; Display updated registers
+  jsr MonShowRegs
+  rts
+
+; ============================================================================
+; MonCmdDir — Display CF directory listing
+; Syntax: @
+; ============================================================================
+
+MonCmdDir:
+  jsr FsDirectory
+  rts
+
+; ============================================================================
+; MonCmdNum — Number base conversion
+; Syntax: N $XXXX  or  N +DDDDD  or  N %BBBBBBBBBBBBBBBB
+; Output: $XXXX  +DDDDD  %BBBBBBBBBBBBBBBB
+; ============================================================================
+
+MonCmdNum:
+  jsr MonSkipSpaces
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  cmp #'$'
+  beq @NumHex
+  cmp #'+'
+  beq @NumDec
+  cmp #'%'
+  beq @NumBin
+  ; Default: try hex (no prefix)
+  bra @NumHexDirect
+@NumHex:
+  inc MON_IDX                   ; Skip '$'
+@NumHexDirect:
+  jsr MonParseHex4
+  bcs @NumPrint
+  jmp MonPrintError
+@NumDec:
+  inc MON_IDX                   ; Skip '+'
+  jsr MonParseDec16
+  bcs @NumPrint
+  jmp MonPrintError
+@NumBin:
+  inc MON_IDX                   ; Skip '%'
+  jsr MonParseBin16
+  bcs @NumPrint
+  jmp MonPrintError
+@NumPrint:
+  ; Value is in MON_ADDR
+  lda #'$'
+  jsr Chrout
+  jsr MonPrintHex4
+  jsr MonPrintSpace
+  jsr MonPrintSpace
+  lda #'+'
+  jsr Chrout
+  jsr MonPrintDec16
+  jsr MonPrintSpace
+  jsr MonPrintSpace
+  lda #'%'
+  jsr Chrout
+  jsr MonPrintBin16
+  jsr MonPrintCRLF
+  rts
+
+; ============================================================================
+; MonCmdLoad — Load from CF (with quoted filename) or serial (without)
+; Syntax: L ["FILE"] [ADDR]
+; CF path:     L "FILENAME" [ADDR] — load file to addr (default $0800)
+; Serial path: L [ADDR]            — receive binary to addr (default $0800)
+; ============================================================================
+
+MonCmdLoad:
+  jsr MonSkipSpaces
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  cmp #'"'
+  bne @LoadSerial
+  jmp @LoadCF
+
+  ; --- Serial path ---
+@LoadSerial:
+  jsr MonParseHex4              ; Optional address
+  bcc @LoadSerDefault
+  ; Got address
+  lda MON_ADDR
+  sta XFER_PTR
+  lda MON_ADDR+1
+  sta XFER_PTR+1
+  bra @LoadSerStart
+@LoadSerDefault:
+  lda #<PROGRAM_START
+  sta XFER_PTR
+  lda #>PROGRAM_START
+  sta XFER_PTR+1
+@LoadSerStart:
+  ; Save load address for success message
+  lda XFER_PTR
+  sta MON_END
+  lda XFER_PTR+1
+  sta MON_END+1
+  ; Switch to serial I/O
+  lda IO_MODE
+  sta XFER_IO_SAVE
+  lda #$01
+  sta IO_MODE
+  ; Print "READY TO RECEIVE" via serial
+  lda #<MonStrReady
+  sta STR_PTR
+  lda #>MonStrReady
+  sta STR_PTR+1
+  jsr MonSerialPrintStr
+  ; Read 2-byte size (lo/hi)
+@SerWaitSzLo:
+  jsr BufferSize
+  beq @SerWaitSzLo
+  jsr ReadBuffer
+  sta XFER_REMAIN
+@SerWaitSzHi:
+  jsr BufferSize
+  beq @SerWaitSzHi
+  jsr ReadBuffer
+  sta XFER_REMAIN+1
+  ; Check for zero-length
+  lda XFER_REMAIN
+  ora XFER_REMAIN+1
+  beq @LoadSerOk
+  ; Receive data bytes
+  ldy #0
+@LoadSerByte:
+  jsr BufferSize
+  beq @LoadSerByte
+  jsr ReadBuffer
+  sta (XFER_PTR),y
+  inc XFER_PTR
+  bne @LoadSerNoPage
+  inc XFER_PTR+1
+@LoadSerNoPage:
+  lda XFER_REMAIN
+  bne @LoadSerDecLo
+  dec XFER_REMAIN+1
+@LoadSerDecLo:
+  dec XFER_REMAIN
+  lda XFER_REMAIN
+  ora XFER_REMAIN+1
+  bne @LoadSerByte
+@LoadSerOk:
+  ; Restore IO_MODE
+  lda XFER_IO_SAVE
+  sta IO_MODE
+  ; Calculate bytes loaded = XFER_PTR - MON_END
+  sec
+  lda XFER_PTR
+  sbc MON_END
+  sta MON_ADDR
+  lda XFER_PTR+1
+  sbc MON_END+1
+  sta MON_ADDR+1
+  jsr MonPrintLoaded            ; Print "LOADED nnnn BYTES AT $xxxx"
+  rts
+
+  ; --- CF path ---
+@LoadCF:
+  inc MON_IDX                   ; Skip opening quote
+  ; Point STR_PTR into line buffer at the filename
+  ldy MON_IDX
+  tya
+  clc
+  adc #<MON_LINBUF
+  sta STR_PTR
+  lda #>MON_LINBUF
+  adc #0
+  sta STR_PTR+1
+  ; Find closing quote and null-terminate
+@LoadCFFindQ:
+  lda MON_LINBUF,y
+  beq @LoadCFQDone              ; End of line — use as-is
+  cmp #'"'
+  beq @LoadCFGotQ
+  iny
+  bra @LoadCFFindQ
+@LoadCFGotQ:
+  lda #0
+  sta MON_LINBUF,y              ; Null-terminate at closing quote
+  iny                           ; Advance past closing quote
+@LoadCFQDone:
+  sty MON_IDX
+  ; Parse filename into FS_FNAME_BUF
+  jsr FsParseName
+  ; Read directory
+  jsr FsReadDir
+  bcc @LoadCFReadOk
+  jmp @LoadCFErr
+@LoadCFReadOk:
+  ; Find file
+  jsr FsFindFile
+  bcc @LoadCFFound
+  jmp @LoadCFNotFound
+@LoadCFFound:
+  ; Read file metadata
+  ldy #FS_ENTRY_START
+  lda (CF_BUF_PTR),y
+  sta FS_START_SEC
+  iny
+  lda (CF_BUF_PTR),y
+  sta FS_START_SEC+1
+  ldy #FS_ENTRY_FSIZE
+  lda (CF_BUF_PTR),y
+  sta FS_FILE_SIZE
+  iny
+  lda (CF_BUF_PTR),y
+  sta FS_FILE_SIZE+1
+  ; Calculate sector count = ceil(size / 512)
+  lda FS_FILE_SIZE+1
+  lsr a
+  sta FS_SEC_COUNT
+  lda FS_FILE_SIZE+1
+  and #$01
+  bne @LoadCFRound
+  lda FS_FILE_SIZE
+  beq @LoadCFNoRound
+@LoadCFRound:
+  inc FS_SEC_COUNT
+@LoadCFNoRound:
+  ; Parse optional load address
+  jsr MonSkipSpaces
+  jsr MonParseHex4
+  bcc @LoadCFDefAddr
+  ; Got address — use it
+  lda MON_ADDR
+  sta CF_BUF_PTR
+  lda MON_ADDR+1
+  sta CF_BUF_PTR+1
+  bra @LoadCFSetLBA
+@LoadCFDefAddr:
+  lda #<PROGRAM_START
+  sta CF_BUF_PTR
+  lda #>PROGRAM_START
+  sta CF_BUF_PTR+1
+@LoadCFSetLBA:
+  ; Save load base address for message
+  lda CF_BUF_PTR
+  sta MON_END
+  lda CF_BUF_PTR+1
+  sta MON_END+1
+  ; Set up LBA
+  lda FS_START_SEC
+  sta CF_LBA
+  lda FS_START_SEC+1
+  sta CF_LBA+1
+  stz CF_LBA+2
+  stz CF_LBA+3
+  ; Read sectors
+  ldx FS_SEC_COUNT
+  beq @LoadCFOk
+@LoadCFSec:
+  phx
+  jsr StReadSector              ; Reads 512 bytes, advances CF_BUF_PTR
+  bcs @LoadCFSecErr
+  inc CF_LBA
+  bne @LoadCFSecNext
+  inc CF_LBA+1
+@LoadCFSecNext:
+  plx
+  dex
+  bne @LoadCFSec
+@LoadCFOk:
+  ; Print success
+  lda FS_FILE_SIZE
+  sta MON_ADDR
+  lda FS_FILE_SIZE+1
+  sta MON_ADDR+1
+  jsr MonPrintLoaded            ; Print "LOADED nnnn BYTES AT $xxxx"
+  rts
+@LoadCFSecErr:
+  plx                           ; Balance stack
+@LoadCFErr:
+  jsr MonPrintIOErr
+  rts
+@LoadCFNotFound:
+  ldx #0
+@LoadCFNFLoop:
+  lda MonStrNotFound,x
+  beq @LoadCFNFDone
+  jsr Chrout
+  inx
+  bra @LoadCFNFLoop
+@LoadCFNFDone:
+  jsr MonPrintCRLF
+  rts
+
+; ============================================================================
+; MonCmdSave — Save to CF (with quoted filename) or serial (without)
+; Syntax: S ["FILE"] ADDR1 ADDR2
+; CF path:     S "FILENAME" ADDR1 ADDR2 — save [addr1,addr2) to file
+; Serial path: S ADDR1 ADDR2            — send [addr1,addr2) via serial
+; ============================================================================
+
+MonCmdSave:
+  jsr MonSkipSpaces
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  cmp #'"'
+  bne @SaveSerial
+  jmp @SaveCF
+
+  ; --- Serial path ---
+@SaveSerial:
+  jsr MonParseHex4              ; Parse start address
+  bcs @SaveSerGotStart
+  jmp @SaveError
+@SaveSerGotStart:
+  lda MON_ADDR
+  sta XFER_PTR
+  lda MON_ADDR+1
+  sta XFER_PTR+1
+  jsr MonSkipSpaces
+  jsr MonParseHex4              ; Parse end address
+  bcs @SaveSerGotEnd
+  jmp @SaveError
+@SaveSerGotEnd:
+  ; Calculate size = end - start
+  sec
+  lda MON_ADDR
+  sbc XFER_PTR
+  sta XFER_REMAIN
+  lda MON_ADDR+1
+  sbc XFER_PTR+1
+  sta XFER_REMAIN+1
+  ; Save size for message
+  lda XFER_REMAIN
+  sta MON_END
+  lda XFER_REMAIN+1
+  sta MON_END+1
+  ; Switch to serial I/O
+  lda IO_MODE
+  sta XFER_IO_SAVE
+  lda #$01
+  sta IO_MODE
+  ; Send 2-byte size (lo/hi)
+  lda XFER_REMAIN
+  jsr SerialChrout
+  lda XFER_REMAIN+1
+  jsr SerialChrout
+  ; Check for zero-length
+  lda XFER_REMAIN
+  ora XFER_REMAIN+1
+  beq @SaveSerDone
+  ; Send data bytes
+  ldy #0
+@SaveSerByte:
+  lda (XFER_PTR),y
+  jsr SerialChrout
+  inc XFER_PTR
+  bne @SaveSerNoPage
+  inc XFER_PTR+1
+@SaveSerNoPage:
+  lda XFER_REMAIN
+  bne @SaveSerDecLo
+  dec XFER_REMAIN+1
+@SaveSerDecLo:
+  dec XFER_REMAIN
+  lda XFER_REMAIN
+  ora XFER_REMAIN+1
+  bne @SaveSerByte
+@SaveSerDone:
+  ; Restore IO_MODE
+  lda XFER_IO_SAVE
+  sta IO_MODE
+  ; Print "SAVED nnnn BYTES"
+  lda MON_END
+  sta MON_ADDR
+  lda MON_END+1
+  sta MON_ADDR+1
+  jsr MonPrintSaved
+  rts
+
+  ; --- CF path ---
+@SaveCF:
+  inc MON_IDX                   ; Skip opening quote
+  ; Point STR_PTR into line buffer at the filename
+  ldy MON_IDX
+  tya
+  clc
+  adc #<MON_LINBUF
+  sta STR_PTR
+  lda #>MON_LINBUF
+  adc #0
+  sta STR_PTR+1
+  ; Find closing quote and null-terminate
+@SaveCFFindQ:
+  lda MON_LINBUF,y
+  beq @SaveCFQDone
+  cmp #'"'
+  beq @SaveCFGotQ
+  iny
+  bra @SaveCFFindQ
+@SaveCFGotQ:
+  lda #0
+  sta MON_LINBUF,y              ; Null-terminate at closing quote
+  iny
+@SaveCFQDone:
+  sty MON_IDX
+  ; Parse filename
+  jsr FsParseName
+  ; Parse start address
+  jsr MonSkipSpaces
+  jsr MonParseHex4
+  bcs @SaveCFGotStart
+  jmp @SaveError
+@SaveCFGotStart:
+  lda MON_ADDR
+  sta MON_TMP                   ; MON_TMP = start address
+  lda MON_ADDR+1
+  sta MON_TMP+1
+  ; Parse end address
+  jsr MonSkipSpaces
+  jsr MonParseHex4
+  bcs @SaveCFGotEnd
+  jmp @SaveError
+@SaveCFGotEnd:
+  ; Calculate size = end - start
+  sec
+  lda MON_ADDR
+  sbc MON_TMP
+  sta FS_FILE_SIZE
+  lda MON_ADDR+1
+  sbc MON_TMP+1
+  sta FS_FILE_SIZE+1
+  ; Read directory
+  jsr FsReadDir
+  bcc @SaveCFReadOk
+  jmp @SaveCFIOErr
+@SaveCFReadOk:
+  ; Try to find existing file with same name
+  jsr FsFindFile
+  bcc @SaveCFOverwrite
+  ; Not found — find a free slot
+  jsr FsFindFree
+  bcc @SaveCFAlloc
+  jmp @SaveCFDirFull
+@SaveCFOverwrite:
+  ; Clear old entry's flags
+  ldy #FS_ENTRY_FLAGS
+  lda #$00
+  sta (CF_BUF_PTR),y
+  ; Find a free slot (could be the one we just freed)
+  jsr FsFindFree
+  bcc @SaveCFAllocOk
+  jmp @SaveCFDirFull
+@SaveCFAllocOk:
+@SaveCFAlloc:
+  ; Save CF_BUF_PTR (points to free entry)
+  lda CF_BUF_PTR
+  pha
+  lda CF_BUF_PTR+1
+  pha
+  ; Calculate next free sector
+  jsr FsCalcNextSec
+  ; Restore CF_BUF_PTR
+  pla
+  sta CF_BUF_PTR+1
+  pla
+  sta CF_BUF_PTR
+  ; Calculate sectors needed
+  lda FS_FILE_SIZE+1
+  lsr a
+  sta FS_SEC_COUNT
+  lda FS_FILE_SIZE+1
+  and #$01
+  bne @SaveCFRound
+  lda FS_FILE_SIZE
+  beq @SaveCFNoRound
+@SaveCFRound:
+  inc FS_SEC_COUNT
+@SaveCFNoRound:
+  ; Fill in directory entry
+  ; Copy filename (11 bytes)
+  ldy #0
+@SaveCFCopyName:
+  lda FS_FNAME_BUF,y
+  sta (CF_BUF_PTR),y
+  iny
+  cpy #11
+  bne @SaveCFCopyName
+  ; Set flags = in use
+  lda #FS_FLAG_USED
+  sta (CF_BUF_PTR),y            ; Y = 11 = FS_ENTRY_FLAGS
+  ; Set start sector
+  ldy #FS_ENTRY_START
+  lda FS_NEXT_SEC
+  sta (CF_BUF_PTR),y
+  sta FS_START_SEC
+  iny
+  lda FS_NEXT_SEC+1
+  sta (CF_BUF_PTR),y
+  sta FS_START_SEC+1
+  ; Set file size
+  ldy #FS_ENTRY_FSIZE
+  lda FS_FILE_SIZE
+  sta (CF_BUF_PTR),y
+  iny
+  lda FS_FILE_SIZE+1
+  sta (CF_BUF_PTR),y
+  ; Clear reserved bytes
+  ldy #$10
+  lda #$00
+@SaveCFClrRsv:
+  sta (CF_BUF_PTR),y
+  iny
+  cpy #FS_ENTRY_SIZE
+  bne @SaveCFClrRsv
+  ; Write updated directory
+  jsr FsWriteDir
+  bcs @SaveCFIOErr
+  ; Write data sectors from user-specified start address (MON_TMP)
+  lda FS_START_SEC
+  sta CF_LBA
+  lda FS_START_SEC+1
+  sta CF_LBA+1
+  stz CF_LBA+2
+  stz CF_LBA+3
+  ; Source = MON_TMP (start address)
+  lda MON_TMP
+  sta CF_BUF_PTR
+  lda MON_TMP+1
+  sta CF_BUF_PTR+1
+  ldx FS_SEC_COUNT
+  beq @SaveCFOk
+@SaveCFSec:
+  phx
+  jsr StWriteSector             ; Writes 512 bytes, advances CF_BUF_PTR
+  bcs @SaveCFSecErr
+  inc CF_LBA
+  bne @SaveCFSecNext
+  inc CF_LBA+1
+@SaveCFSecNext:
+  plx
+  dex
+  bne @SaveCFSec
+@SaveCFOk:
+  lda FS_FILE_SIZE
+  sta MON_ADDR
+  lda FS_FILE_SIZE+1
+  sta MON_ADDR+1
+  jsr MonPrintSaved             ; Print "SAVED nnnn BYTES"
+  rts
+@SaveCFSecErr:
+  plx                           ; Balance stack
+@SaveCFIOErr:
+  jsr MonPrintIOErr
+  rts
+@SaveCFDirFull:
+  ldx #0
+@SaveCFDFLoop:
+  lda MonStrDirFull,x
+  beq @SaveCFDFDone
+  jsr Chrout
+  inx
+  bra @SaveCFDFLoop
+@SaveCFDFDone:
+  jsr MonPrintCRLF
+  rts
+@SaveError:
   jmp MonPrintError
 
 ; ============================================================================
@@ -1387,6 +2170,272 @@ MonSkipSpaces:
   rts
 
 ; ============================================================================
+; Decimal & Binary Parsing Utilities
+; ============================================================================
+
+; MonParseDec16 — Parse decimal digits from MON_LINBUF into MON_ADDR
+; Input:  MON_IDX points to current position in MON_LINBUF
+; Output: MON_ADDR = parsed 16-bit value, carry set if valid
+;         MON_IDX advanced past parsed digits
+; Modifies: A, X, Y, MON_ADDR, MON_TMP
+
+MonParseDec16:
+  stz MON_ADDR
+  stz MON_ADDR+1
+  ldx #0                        ; Digit count
+@DecLoop:
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  cmp #'0'
+  bcc @DecDone
+  cmp #'9'+1
+  bcs @DecDone
+  sec
+  sbc #'0'                      ; A = digit 0-9
+  pha                           ; Save digit
+  ; MON_ADDR = MON_ADDR * 10 + digit
+  ; *10 = (*2 + *8): save *2, then *8, add
+  asl MON_ADDR
+  rol MON_ADDR+1
+  lda MON_ADDR
+  sta MON_TMP
+  lda MON_ADDR+1
+  sta MON_TMP+1                 ; MON_TMP = *2
+  asl MON_ADDR
+  rol MON_ADDR+1                ; *4
+  asl MON_ADDR
+  rol MON_ADDR+1                ; *8
+  clc
+  lda MON_ADDR
+  adc MON_TMP
+  sta MON_ADDR
+  lda MON_ADDR+1
+  adc MON_TMP+1
+  sta MON_ADDR+1                ; *10
+  ; + digit
+  pla
+  clc
+  adc MON_ADDR
+  sta MON_ADDR
+  bcc @DecNoCarry
+  inc MON_ADDR+1
+@DecNoCarry:
+  inc MON_IDX
+  inx
+  cpx #5                        ; Max 5 digits (65535)
+  bcc @DecLoop
+@DecDone:
+  cpx #0
+  beq @DecFail
+  sec                           ; Success
+  rts
+@DecFail:
+  clc                           ; Failure
+  rts
+
+; MonParseBin16 — Parse binary digits from MON_LINBUF into MON_ADDR
+; Input:  MON_IDX points to current position in MON_LINBUF
+; Output: MON_ADDR = parsed 16-bit value, carry set if valid
+;         MON_IDX advanced past parsed digits
+; Modifies: A, X, Y, MON_ADDR
+
+MonParseBin16:
+  stz MON_ADDR
+  stz MON_ADDR+1
+  ldx #0                        ; Digit count
+@BinLoop:
+  ldy MON_IDX
+  lda MON_LINBUF,y
+  cmp #'0'
+  beq @BinGot
+  cmp #'1'
+  beq @BinGot
+  bra @BinDone
+@BinGot:
+  sec
+  sbc #'0'                      ; A = 0 or 1
+  lsr a                         ; Bit into carry
+  rol MON_ADDR
+  rol MON_ADDR+1
+  inc MON_IDX
+  inx
+  cpx #16                       ; Max 16 bits
+  bcc @BinLoop
+@BinDone:
+  cpx #0
+  beq @BinFail
+  sec                           ; Success
+  rts
+@BinFail:
+  clc                           ; Failure
+  rts
+
+; ============================================================================
+; Decimal & Binary Output Utilities
+; ============================================================================
+
+; MonPrintDec16 — Print MON_ADDR as up to 5 decimal digits
+; Uses successive subtraction of powers of 10
+; Modifies: A, X, Y, MON_TMP, MON_BYTE
+
+MonPrintDec16:
+  ; Copy value to MON_TMP so we don't destroy MON_ADDR
+  lda MON_ADDR
+  sta MON_TMP
+  lda MON_ADDR+1
+  sta MON_TMP+1
+  ldx #0                        ; Leading zero suppression flag
+  ldy #0                        ; Power-of-10 index
+@Dec16Loop:
+  lda #'0'-1
+  sta MON_BYTE                  ; Digit scratch
+@Dec16Sub:
+  inc MON_BYTE
+  lda MON_TMP
+  sec
+  sbc @Dec16Pow10Lo,y
+  pha
+  lda MON_TMP+1
+  sbc @Dec16Pow10Hi,y
+  bcc @Dec16Digit               ; Underflow — digit done
+  sta MON_TMP+1
+  pla
+  sta MON_TMP
+  bra @Dec16Sub
+@Dec16Digit:
+  pla                           ; Discard underflowed low byte
+  lda MON_BYTE
+  cmp #'0'
+  bne @Dec16Print               ; Non-zero → print
+  cpx #0
+  beq @Dec16Skip                ; Leading zero → skip
+@Dec16Print:
+  phx
+  phy
+  jsr Chrout
+  ply
+  plx
+  inx                           ; Mark we've printed a digit
+@Dec16Skip:
+  iny
+  cpy #4                        ; 4 powers: 10000, 1000, 100, 10
+  bne @Dec16Loop
+  ; Always print ones digit
+  lda MON_TMP
+  ora #'0'
+  jsr Chrout
+  rts
+@Dec16Pow10Lo: .byte <10000, <1000, <100, <10
+@Dec16Pow10Hi: .byte >10000, >1000, >100, >10
+
+; MonPrintBin16 — Print MON_ADDR as 16 binary digits (MSB first)
+; Modifies: A, X
+
+MonPrintBin16:
+  lda MON_ADDR+1                ; High byte first
+  jsr @PrintBin8
+  lda MON_ADDR                  ; Then low byte
+@PrintBin8:
+  ldx #8
+@BinBitLoop:
+  asl a                         ; Shift MSB into carry
+  pha
+  lda #'0'
+  adc #0                        ; +1 if carry → '1'
+  jsr Chrout
+  pla
+  dex
+  bne @BinBitLoop
+  rts
+
+; ============================================================================
+; Message Print Helpers (Phase 5)
+; ============================================================================
+
+; MonPrintLoaded — Print "LOADED nnnn BYTES AT $xxxx"
+; Input: MON_ADDR = byte count, MON_END = load address
+; Modifies: A, X, Y, MON_TMP, MON_BYTE
+
+MonPrintLoaded:
+  ldx #0
+@PLoop1:
+  lda MonStrLoadPfx,x
+  beq @PDone1
+  jsr Chrout
+  inx
+  bra @PLoop1
+@PDone1:
+  jsr MonPrintDec16             ; Print byte count from MON_ADDR
+  ldx #0
+@PLoop2:
+  lda MonStrBytesAt,x
+  beq @PDone2
+  jsr Chrout
+  inx
+  bra @PLoop2
+@PDone2:
+  ; Print address from MON_END
+  lda MON_END
+  sta MON_ADDR
+  lda MON_END+1
+  sta MON_ADDR+1
+  jsr MonPrintHex4
+  jmp MonPrintCRLF
+
+; MonPrintSaved — Print "SAVED nnnn BYTES"
+; Input: MON_ADDR = byte count
+; Modifies: A, X, Y, MON_TMP, MON_BYTE
+
+MonPrintSaved:
+  ldx #0
+@SLoop1:
+  lda MonStrSavePfx,x
+  beq @SDone1
+  jsr Chrout
+  inx
+  bra @SLoop1
+@SDone1:
+  jsr MonPrintDec16             ; Print byte count from MON_ADDR
+  ldx #0
+@SLoop2:
+  lda MonStrBytes,x
+  beq @SDone2
+  jsr Chrout
+  inx
+  bra @SLoop2
+@SDone2:
+  jmp MonPrintCRLF
+
+; MonPrintIOErr — Print "I/O ERROR"
+; Modifies: A, X
+
+MonPrintIOErr:
+  ldx #0
+@ELoop:
+  lda MonStrIOErr,x
+  beq @EDone
+  jsr Chrout
+  inx
+  bra @ELoop
+@EDone:
+  jmp MonPrintCRLF
+
+; MonSerialPrintStr — Print null-terminated string at STR_PTR via serial
+; Input: STR_PTR points to string
+; Modifies: A, Y
+
+MonSerialPrintStr:
+  ldy #0
+@SrLoop:
+  lda (STR_PTR),y
+  beq @SrDone
+  jsr SerialChrout
+  iny
+  bne @SrLoop
+@SrDone:
+  rts
+
+; ============================================================================
 ; Hex Output Utilities
 ; ============================================================================
 
@@ -1466,6 +2515,22 @@ MonStrBanner:
   .byte "COB MONITOR v1.0", $0D, $0A, 0
 MonStrBrk:
   .byte "BRK AT $", 0
+MonStrReady:
+  .byte $0D, $0A, "READY TO RECEIVE", $0D, $0A, 0
+MonStrNotFound:
+  .byte "FILE NOT FOUND", 0
+MonStrDirFull:
+  .byte "DIRECTORY FULL", 0
+MonStrLoadPfx:
+  .byte "LOADED ", 0
+MonStrSavePfx:
+  .byte "SAVED ", 0
+MonStrBytesAt:
+  .byte " BYTES AT $", 0
+MonStrBytes:
+  .byte " BYTES", 0
+MonStrIOErr:
+  .byte "I/O ERROR", 0
 
 ; ============================================================================
 ; Disassembler Data Tables
