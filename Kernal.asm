@@ -1167,6 +1167,13 @@ ProbeVideo:
   lda HW_PRESENT
   ora #HW_VID
   sta HW_PRESENT
+  ; Clean up probe byte — write $00 back to VRAM $0000
+  lda #$00
+  sta VC_REG                    ; Low byte of address
+  lda #$40                      ; High byte $00 OR $40 for write mode
+  sta VC_REG
+  lda #$00
+  sta VC_DATA    
 @ProbeVideoDone:
   rts
 
