@@ -65,7 +65,7 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 | Command | Syntax | Effect |
 |---------|--------|--------|
 | `PRINT` | `PRINT [item [sep item ...]]` | Output items to console. Items can be string literals or expressions. `;` continues on the same line (trailing `;` suppresses the CRLF); `,` inserts two spaces. Bare `PRINT` prints only CRLF |
-| `INPUT` | `INPUT ["prompt"{;&#124;,}] var` | Read an integer from the user into `var`. With `;` appends `? ` to the prompt; with `,` prints the prompt only. Re-prompts with `?REDO` on non-numeric input |
+| `INPUT` | `INPUT ["prompt"{;`&#124;`,}] var` | Read an integer from the user into `var`. With `;` appends `? ` to the prompt; with `,` prints the prompt only. Re-prompts with `?REDO` on non-numeric input |
 | `LET` | `LET var = expr` | Assign expression result to variable. `LET` is optional — `var = expr` is equivalent |
 | `GOTO` | `GOTO expr` | Jump unconditionally to the line numbered `expr`. `expr` can be any expression |
 | `GOSUB` | `GOSUB expr` | Push current position and jump to `expr`. Up to 64 levels deep |
