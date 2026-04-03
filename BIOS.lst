@@ -1023,7 +1023,7 @@ Current file: BIOS.asm
 0004FCr 2  60             rts
 0004FDr 2               
 0004FDr 2               ; Play a short beep sound
-0004FDr 2               ; Uses SidPlayNote on voice 0 with ~1000 Hz tone, then silences
+0004FDr 2               ; Uses SidPlayNote on voice 0 with ~475 Hz tone, then silences
 0004FDr 2               ; Skips silently if SID is absent
 0004FDr 2               ; Modifies: Flags, A, X, Y
 0004FDr 2               BeepImpl:
@@ -1033,7 +1033,7 @@ Current file: BIOS.asm
 000504r 2  60             rts                           ; No SID — skip silently
 000505r 2               @BeepStart:
 000505r 2  A9 00          lda #$00                      ; Voice 0
-000507r 2  A2 20          ldx #$20                      ; Frequency low byte (~1000 Hz)
+000507r 2  A2 20          ldx #$20                      ; Frequency low byte (~475 Hz)
 000509r 2  A0 1F          ldy #$1F                      ; Frequency high byte
 00050Br 2  20 rr rr       jsr SidPlayNote
 00050Er 2                 ; Override ADSR for beep: fast decay, no sustain

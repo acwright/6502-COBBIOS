@@ -769,7 +769,7 @@ SidSilenceImpl:
   rts
 
 ; Play a short beep sound
-; Uses SidPlayNote on voice 0 with ~1000 Hz tone, then silences
+; Uses SidPlayNote on voice 0 with ~475 Hz tone, then silences
 ; Skips silently if SID is absent
 ; Modifies: Flags, A, X, Y
 BeepImpl:
@@ -779,7 +779,7 @@ BeepImpl:
   rts                           ; No SID — skip silently
 @BeepStart:
   lda #$00                      ; Voice 0
-  ldx #$20                      ; Frequency low byte (~1000 Hz)
+  ldx #$20                      ; Frequency low byte (~475 Hz)
   ldy #$1F                      ; Frequency high byte
   jsr SidPlayNote
   ; Override ADSR for beep: fast decay, no sustain

@@ -233,7 +233,7 @@ A DS1511Y RTC provides time and date. `RtcReadTime` returns hours/minutes/second
 
 ### Sound
 
-A SID chip provides audio output. The `Beep` Kernal routine plays a ~1000 Hz tone on voice 1. Use `SidPlayNote` to play any frequency on any of the three voices, `SidSilence` to stop all voices, and `SidSetVolume` to set the master volume (0–15).
+A SID chip provides audio output. The `Beep` Kernal routine plays a ~475 Hz tone on voice 1. Use `SidPlayNote` to play any frequency on any of the three voices, `SidSilence` to stop all voices, and `SidSetVolume` to set the master volume (0–15).
 
 ---
 
