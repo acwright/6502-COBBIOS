@@ -54,7 +54,7 @@ All hardware-dependent operations are guarded at every level — Kernal, BASIC, 
 - **GPIO/VIA absent** — `SysDelay` falls back to a calibrated software busy-loop; `JOY()` returns 0; keyboard IRQ check is skipped
 - **SID absent** — `Beep`, `SOUND`, `VOL`, `SidPlayNote`, `SidSilence` silently return
 - **Video absent** — `CLS`, `LOCATE`, `COLOR` silently skip (arguments are still consumed); console auto-switches to serial
-- **RTC absent** — `TIME` and `DATE` in BASIC print `NO DEVICE`
+- **RTC absent** — `TIME`, `DATE`, `SETTIME`, `SETDATE`, and `NVRAM` (write) in BASIC print `NO DEVICE`; `NVRAM()` (read) returns 0
 
 ### Integer BASIC
 
@@ -84,7 +84,8 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 | `LIST` | `LIST` | Print the entire program in detokenized form. Ctrl+C interrupts |
 | `RUN` | `RUN` | Clear all variables and run the program from the first line |
 | `NEW` | `NEW` | Erase the program and clear variables. No `OK` is printed afterward |
-| `CLR` | `CLR` | Clear all variables (A–Z) to zero and reset GOSUB/FOR stacks. Program is kept |
+| `CLR` | `CLR` | Clear all variables (A–Z) to zero, reset GOSUB/FOR stacks, and release all arrays. Program is kept |
+| `DIM` | `DIM var(size) [, var(size) ...]` | Dimension one or more arrays with indices `0` to `size`. Arrays are stored at the top of RAM, growing downward. `REDIM'D ARRAY` error if already dimensioned; released by `CLR`, `RUN`, or `NEW` |
 | `POKE` | `POKE addr, value` | Write the low byte of `value` to memory address `addr` |
 | `BRK` | `BRK` | Drop into the machine-code monitor. Return to BASIC with `X` in the monitor |
 
@@ -100,6 +101,7 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 | `DIR` | List all files stored on CompactFlash |
 | `DEL "name"` | Delete a named file from CompactFlash and reclaim its directory entry |
 | `BANK <n>` | Select 1KB RAM bank `n` at `$8000–$83FE` via the bank latch |
+| `MEM` | Print system info: free bytes, hardware-present flags (as hex), and active I/O mode |
 
 **Video & Display**
 
@@ -129,6 +131,9 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 |---------|--------|
 | `TIME` | Print current RTC time as `HH:MM:SS` |
 | `DATE` | Print current RTC date as `CCYY-MM-DD` |
+| `SETTIME <hh>, <mm>, <ss>` | Set the RTC time (hours, minutes, seconds in binary) |
+| `SETDATE <cc>, <yy>, <mm>, <dd>` | Set the RTC date (century, year, month, day in binary) |
+| `NVRAM <addr>, <value>` | Write a byte to RTC battery-backed NVRAM at address `0`–`255` |
 
 **Functions & Expressions**
 
@@ -152,6 +157,9 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 | `TAB(n)` | In `PRINT`, advances cursor to column `n` by emitting spaces. Does nothing if already at or past column `n`. In expressions, returns `n` unchanged |
 | `HEX(n)` | In `PRINT`, outputs `n` as a 4-digit hexadecimal value with `$` prefix (e.g. `$00FF`). In expressions, returns `n` unchanged |
 | `JOY(1)` / `JOY(2)` | Joystick bitmask for port 1 or 2 (bit order: R-L-D-U-Y-X-B-A) |
+| `FREE` | Returns free bytes between program end and array space. No parentheses |
+| `NVRAM(addr)` | Read a byte from RTC battery-backed NVRAM at address `0`–`255`. Returns `0` if RTC is absent |
+| `var(index)` | Array element access. Array must be previously dimensioned with `DIM`. `BAD SUBSCRIPT` error if index is out of range |
 | `$xxxx` | Hexadecimal integer literal (e.g. `$FF` = 255, `$1000` = 4096) |
 
 **Operator Precedence** (high to low)
@@ -168,6 +176,8 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 > **Note on integer range:** BASIC uses signed 16-bit integers (`-32768` to `32767`). Hex literals above `$7FFF` print as negative numbers (e.g. `$A000` = `-24576`).
 
 > **Stack limits:** GOSUB supports up to 64 nested levels; FOR/NEXT supports up to 8 nested loops. Exceeding either limit produces an `OUT OF MEMORY` error.
+
+> **Arrays:** Each variable A–Z can optionally be dimensioned as a 1D array with `DIM`. Arrays are allocated from the top of RAM downward; `FREE` reports the gap between the program and array space. Elements are 0-indexed signed 16-bit integers, initialised to zero.
 
 ### Machine Code Monitor
 
@@ -273,9 +283,9 @@ A SID chip provides audio output. The `Beep` Kernal routine plays a ~475 Hz tone
 | `$0000–$00FF` | 256B | Zero page (Kernal + BASIC workspace) |
 | `$0100–$01FF` | 256B | CPU stack |
 | `$0200–$02FF` | 256B | Keyboard input ring buffer |
-| `$0300–$03FF` | 256B | Kernal variables (vectors, cursor, HW\_PRESENT, RTC, FS state) |
+| `$0300–$03FF` | 256B | Kernal variables (vectors, cursor, HW\_PRESENT, RTC, FS state, array descriptors) |
 | `$0400–$07FF` | 1KB | User / BASIC variables |
-| `$0800–$7FFF` | ~31KB | Program space |
+| `$0800–$7FFF` | ~31KB | Program space (programs grow up from `$0800`; arrays grow down from `$7FFF`) |
 
 ---
 

@@ -55,6 +55,10 @@ BAS_FOR_ENTRY       = 16                 ; Bytes per FOR entry
 BAS_GOSUB_MAX       = BAS_GOSUBSTK_SIZE / BAS_GOSUB_ENTRY  ; 64 levels
 BAS_FOR_MAX         = BAS_FORSTK_SIZE / BAS_FOR_ENTRY       ; 8 levels
 
+; Array support — stored in Kernal vars area ($035B+)
+BAS_ARYDESC         := $035B             ; $035B-$038E - 26 × 2-byte array base pointers (0=not DIM'd)
+BAS_ARYTOP          := $038F             ; $038F-$0390 - Bottom of array space (grows down from $8000)
+
 ; Program space
 BAS_PRG_START       = PROGRAM_START      ; $0800 - Start of BASIC program storage
 BAS_PRG_END         = $7FFF              ; Last usable byte for programs
@@ -142,6 +146,14 @@ TOK_TAB             = $BB
 TOK_HEX             = $BC
 TOK_ASC             = $BD
 
+; Phase 2 tokens
+TOK_FREE            = $BE
+TOK_SETTIME         = $BF
+TOK_SETDATE         = $C0
+TOK_NVRAM           = $C1
+TOK_MEM             = $C2
+TOK_DIM             = $C3
+
 ; Multi-char operator tokens
 TOK_GE              = $9A               ; >=
 TOK_LE              = $9B               ; <=
@@ -181,6 +193,8 @@ ERR_ILLEGAL_QTY     = 8
 ERR_BREAK           = 9
 ERR_OUT_OF_DATA     = 10
 ERR_CANT_CONT       = 11
+ERR_REDIM           = 12
+ERR_BAD_SUBSCRIPT   = 13
 
 ; ============================================================================
 ; Entry Point
@@ -335,6 +349,19 @@ BasCmdClr:
   dex
   bpl @ClrLoop
 
+  ; Zero 26 array descriptors (52 bytes at BAS_ARYDESC)
+  ldx #51
+@ClrAryLoop:
+  sta BAS_ARYDESC,x
+  dex
+  bpl @ClrAryLoop
+
+  ; Reset array top to $8000 (no arrays allocated)
+  lda #$00
+  sta BAS_ARYTOP
+  lda #$80
+  sta BAS_ARYTOP + 1
+
   ; Reset GOSUB and FOR stack pointers
   stz BAS_GOSUBSP
   stz BAS_FORSP
@@ -378,12 +405,19 @@ BasPrintCRLF:
 ; Print free bytes message: "XXXXX BYTES FREE" + CRLF
 ; Modifies: A, X, Y, Flags
 BasPrintFree:
-  ; Calculate free = BAS_PRG_END - BAS_PRGEND
+  ; Calculate free = (BAS_ARYTOP - 1) - BAS_PRGEND
   sec
-  lda #<BAS_PRG_END
+  lda BAS_ARYTOP
+  sbc #$01
+  sta BAS_ACC
+  lda BAS_ARYTOP + 1
+  sbc #$00
+  sta BAS_ACC + 1
+  sec
+  lda BAS_ACC
   sbc BAS_PRGEND
   sta BAS_ACC
-  lda #>BAS_PRG_END
+  lda BAS_ACC + 1
   sbc BAS_PRGEND + 1
   sta BAS_ACC + 1
 
@@ -1642,6 +1676,8 @@ BasErrTable:
   .word BasErrBreak              ; 9 - BREAK
   .word BasErrOutOfData           ; 10 - OUT OF DATA
   .word BasErrCantCont            ; 11 - CAN'T CONTINUE
+  .word BasErrRedim               ; 12 - REDIM'D ARRAY
+  .word BasErrBadSub              ; 13 - BAD SUBSCRIPT
 
 ; Error message strings
 BasErrSyntax:    .byte "SYNTAX", $00
@@ -1656,6 +1692,8 @@ BasErrIllegal:   .byte "ILLEGAL QUANTITY", $00
 BasErrBreak:     .byte "BREAK", $00
 BasErrOutOfData: .byte "OUT OF DATA", $00
 BasErrCantCont:  .byte "CAN'T CONTINUE", $00
+BasErrRedim:     .byte "REDIM'D ARRAY", $00
+BasErrBadSub:    .byte "BAD SUBSCRIPT", $00
 
 ; ============================================================================
 ; 16-Bit Math Routines
@@ -2220,16 +2258,24 @@ BasExprPrimary:
   bcc @NotVar
   cmp #'Z' + 1
   bcs @NotVar
-  ; Variable — compute address: BAS_VARS + (ch - 'A') * 2
+  ; Variable — compute index: (ch - 'A') * 2
   sec
   sbc #'A'
   asl                            ; ×2 for 16-bit
   tax
+  jsr BasAdvTxtPtr               ; Skip variable letter
+  ; Check for '(' → array access
+  jsr BasGetTokChar
+  cmp #CH_LPAREN
+  beq @AryRead
+  ; Scalar variable read
   lda BAS_VARS,x
   sta BAS_ACC
   lda BAS_VARS + 1,x
   sta BAS_ACC + 1
-  jmp BasAdvTxtPtr               ; Skip variable letter
+  rts
+@AryRead:
+  jmp BasArrayRead               ; X = var_offset, will return with BAS_ACC set
 @NotVar:
 
   ; Parenthesized expression?
@@ -2535,6 +2581,50 @@ BasExprPrimary:
   rts                            ; BAS_ACC already holds n
 @NotAsc:
 
+  ; FREE — returns free bytes (no parentheses, like INKEY)
+  cmp #TOK_FREE
+  bne @NotFree
+  jsr BasAdvTxtPtr               ; Skip TOK_FREE
+  sec
+  lda BAS_ARYTOP
+  sbc #$01
+  sta BAS_ACC
+  lda BAS_ARYTOP + 1
+  sbc #$00
+  sta BAS_ACC + 1
+  sec
+  lda BAS_ACC
+  sbc BAS_PRGEND
+  sta BAS_ACC
+  lda BAS_ACC + 1
+  sbc BAS_PRGEND + 1
+  sta BAS_ACC + 1
+  rts
+@NotFree:
+
+  ; NVRAM(addr) — read byte from RTC NVRAM
+  cmp #TOK_NVRAM
+  bne @NotNvramFunc
+  jsr BasAdvTxtPtr               ; Skip TOK_NVRAM
+  lda #CH_LPAREN
+  jsr BasExpectChar
+  jsr BasExpr                    ; addr -> BAS_ACC
+  lda #CH_RPAREN
+  jsr BasExpectChar
+  lda HW_PRESENT
+  and #HW_RTC
+  beq @NvramFuncNoDev
+  ldx BAS_ACC                   ; X = NVRAM address
+  jsr RtcReadNVRAM              ; A = data byte
+  sta BAS_ACC
+  stz BAS_ACC + 1
+  rts
+@NvramFuncNoDev:
+  stz BAS_ACC
+  stz BAS_ACC + 1
+  rts
+@NotNvramFunc:
+
   ; Hex literal $xxxx
   cmp #'$'
   bne @NotHex
@@ -2710,6 +2800,21 @@ BasExecLine:
 : cmp #TOK_RESTORE
   bne :+
   jmp @JmpRestore
+: cmp #TOK_SETTIME
+  bne :+
+  jmp @JmpSettime
+: cmp #TOK_SETDATE
+  bne :+
+  jmp @JmpSetdate
+: cmp #TOK_NVRAM
+  bne :+
+  jmp @JmpNvramW
+: cmp #TOK_MEM
+  bne :+
+  jmp @JmpMem
+: cmp #TOK_DIM
+  bne :+
+  jmp @JmpDim
 :
   ; Check for implicit LET: A-Z followed by =
   cmp #'A'
@@ -2798,43 +2903,43 @@ BasExecLine:
 @JmpCls:
   jsr BasAdvTxtPtr
   jsr BasCmdCls
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpLocate:
   jsr BasAdvTxtPtr
   jsr BasCmdLocate
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpColor:
   jsr BasAdvTxtPtr
   jsr BasCmdColor
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpSound:
   jsr BasAdvTxtPtr
   jsr BasCmdSound
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpVol:
   jsr BasAdvTxtPtr
   jsr BasCmdVol
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpTime:
   jsr BasAdvTxtPtr
   jsr BasCmdTime
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpDate:
   jsr BasAdvTxtPtr
   jsr BasCmdDate
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpWait:
   jsr BasAdvTxtPtr
   jsr BasCmdWait
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpPause:
   jsr BasAdvTxtPtr
   jsr BasCmdPause
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpBank:
   jsr BasAdvTxtPtr
   jsr BasCmdBank
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpStop:
   jsr BasAdvTxtPtr
   jmp BasCmdStop
@@ -2847,11 +2952,31 @@ BasExecLine:
 @JmpRead:
   jsr BasAdvTxtPtr
   jsr BasCmdRead
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
 @JmpRestore:
   jsr BasAdvTxtPtr
   jsr BasCmdRestore
-  bra @ExecCheckMore
+  jmp @ExecCheckMore
+@JmpSettime:
+  jsr BasAdvTxtPtr
+  jsr BasCmdSettime
+  jmp @ExecCheckMore
+@JmpSetdate:
+  jsr BasAdvTxtPtr
+  jsr BasCmdSetdate
+  jmp @ExecCheckMore
+@JmpNvramW:
+  jsr BasAdvTxtPtr
+  jsr BasCmdNvramW
+  jmp @ExecCheckMore
+@JmpMem:
+  jsr BasAdvTxtPtr
+  jsr BasCmdMem
+  jmp @ExecCheckMore
+@JmpDim:
+  jsr BasAdvTxtPtr
+  jsr BasCmdDim
+  jmp @ExecCheckMore
 
 @ExecCheckMore:
   ; Check for ':' statement separator
@@ -3282,7 +3407,12 @@ BasCmdLet:
   sta BAS_TEMP                   ; Variable offset
   jsr BasAdvTxtPtr               ; Skip variable letter
 
+  ; Check for '(' → array element assignment
   jsr BasSkipSpaces
+  jsr BasGetTokChar
+  cmp #CH_LPAREN
+  beq @LetArray
+
   lda #CH_EQUALS
   jsr BasExpectChar              ; Expect '='
 
@@ -3295,6 +3425,10 @@ BasCmdLet:
   lda BAS_ACC + 1
   sta BAS_VARS + 1,x
   rts
+
+@LetArray:
+  ldx BAS_TEMP
+  jmp BasArrayWrite              ; X = var_offset, handles (index) = expr
 
 @LetErr:
   lda #ERR_SYNTAX
@@ -4747,6 +4881,461 @@ BasFuncPow:
   rts
 
 ; ============================================================================
+; SETTIME hh, mm, ss — Set RTC time
+; ============================================================================
+
+BasCmdSettime:
+  lda HW_PRESENT
+  and #HW_RTC
+  bne @SettimeStart
+  jmp BasPrintNoDevice
+@SettimeStart:
+  jsr BasExpr                    ; hh -> BAS_ACC
+  lda BAS_ACC
+  pha                            ; save hours
+  jsr BasSkipSpaces
+  lda #CH_COMMA
+  jsr BasExpectChar
+  jsr BasExpr                    ; mm -> BAS_ACC
+  lda BAS_ACC
+  pha                            ; save minutes
+  jsr BasSkipSpaces
+  lda #CH_COMMA
+  jsr BasExpectChar
+  jsr BasExpr                    ; ss -> BAS_ACC
+  ; Stack: top=minutes, bottom=hours. BAS_ACC has seconds.
+  ; RtcWriteTime wants: A=hours, X=minutes, Y=seconds
+  ldy BAS_ACC                   ; Y = seconds
+  plx                            ; X = minutes (was pushed last)
+  pla                            ; A = hours (was pushed first)
+  jsr RtcWriteTime
+  rts
+
+; ============================================================================
+; SETDATE cc, yy, mm, dd — Set RTC date
+; ============================================================================
+
+BasCmdSetdate:
+  lda HW_PRESENT
+  and #HW_RTC
+  bne @SetdateStart
+  jmp BasPrintNoDevice
+@SetdateStart:
+  jsr BasExpr                    ; cc -> BAS_ACC
+  lda BAS_ACC
+  sta RTC_BUF_CENT               ; Store century for RtcWriteDate
+  jsr BasSkipSpaces
+  lda #CH_COMMA
+  jsr BasExpectChar
+  jsr BasExpr                    ; yy -> BAS_ACC
+  lda BAS_ACC
+  pha                            ; push year (1st on stack)
+  jsr BasSkipSpaces
+  lda #CH_COMMA
+  jsr BasExpectChar
+  jsr BasExpr                    ; mm -> BAS_ACC
+  lda BAS_ACC
+  pha                            ; push month (2nd on stack)
+  jsr BasSkipSpaces
+  lda #CH_COMMA
+  jsr BasExpectChar
+  jsr BasExpr                    ; dd -> BAS_ACC
+  ; Stack: top=month, bottom=year. BAS_ACC has day.
+  ; RtcWriteDate wants: A=day, X=month, Y=year
+  lda BAS_ACC                   ; A = day
+  plx                            ; X = month (was pushed last)
+  ply                            ; Y = year (was pushed first)
+  jsr RtcWriteDate
+  rts
+
+; ============================================================================
+; NVRAM addr, value — Write byte to RTC NVRAM
+; ============================================================================
+
+BasCmdNvramW:
+  lda HW_PRESENT
+  and #HW_RTC
+  bne @NvramWStart
+  jmp BasPrintNoDevice
+@NvramWStart:
+  jsr BasExpr                    ; addr -> BAS_ACC
+  lda BAS_ACC
+  sta BAS_TEMP                   ; save address
+  jsr BasSkipSpaces
+  lda #CH_COMMA
+  jsr BasExpectChar
+  jsr BasExpr                    ; value -> BAS_ACC
+  ldx BAS_TEMP                   ; X = address
+  lda BAS_ACC                    ; A = value
+  jsr RtcWriteNVRAM
+  rts
+
+; ============================================================================
+; MEM — Print system info
+; ============================================================================
+
+BasCmdMem:
+  ; Print free bytes
+  jsr BasPrintFree
+  ; Print HW: $xx
+  lda #<BasStrMemHW
+  sta BAS_TMP1
+  lda #>BasStrMemHW
+  sta BAS_TMP1 + 1
+  jsr BasPrintStr                ; CR+LF+"HW: $"
+  lda HW_PRESENT
+  jsr BasMemHexByte
+  ; Print IO mode
+  lda #<BasStrMemIO
+  sta BAS_TMP1
+  lda #>BasStrMemIO
+  sta BAS_TMP1 + 1
+  jsr BasPrintStr                ; CR+LF+"IO: "
+  lda IO_MODE
+  and #$01
+  bne @MemSerial
+  lda #'V'
+  jsr Chrout
+  lda #'I'
+  jsr Chrout
+  lda #'D'
+  jsr Chrout
+  bra @MemIODone
+@MemSerial:
+  lda #'S'
+  jsr Chrout
+  lda #'E'
+  jsr Chrout
+  lda #'R'
+  jsr Chrout
+@MemIODone:
+  jsr BasPrintCRLF
+  rts
+
+; BasMemHexByte — print A as 2 hex digits
+BasMemHexByte:
+  pha
+  lsr
+  lsr
+  lsr
+  lsr
+  jsr @MemNibble
+  pla
+  and #$0F
+@MemNibble:
+  cmp #$0A
+  bcc @MemDigit
+  adc #('A' - $0A - 1)
+  bra @MemPrint
+@MemDigit:
+  ora #'0'
+@MemPrint:
+  jmp Chrout
+
+; ============================================================================
+; DIM var(size) [, var(size) ...] — Dimension arrays
+; ============================================================================
+
+BasCmdDim:
+@DimNext:
+  jsr BasSkipSpaces
+  jsr BasGetTokChar
+
+  ; Must be a variable A-Z
+  cmp #'A'
+  bcs @DimNotLow
+  jmp @DimErr
+@DimNotLow:
+  cmp #'Z' + 1
+  bcc @DimNotHigh
+  jmp @DimErr
+@DimNotHigh:
+
+  sec
+  sbc #'A'
+  asl                            ; ×2 for descriptor table index
+  sta BAS_TEMP                   ; Save var offset
+
+  jsr BasAdvTxtPtr               ; Skip variable letter
+
+  ; Expect '('
+  lda #CH_LPAREN
+  jsr BasExpectChar
+
+  jsr BasExpr                    ; size -> BAS_ACC (max valid index)
+
+  ; Expect ')'
+  lda #CH_RPAREN
+  jsr BasExpectChar
+
+  ; Check if already dimensioned
+  ldx BAS_TEMP
+  lda BAS_ARYDESC,x
+  ora BAS_ARYDESC + 1,x
+  beq @DimNotRedim
+  jmp @DimRedim
+@DimNotRedim:
+
+  ; BAS_ACC = max index (0-based), elements = ACC + 1
+  ; Total bytes = 2 (dim size) + (ACC + 1) * 2
+  ; Check non-negative
+  lda BAS_ACC + 1
+  bpl @DimNotNeg
+  jmp @DimIllegal
+@DimNotNeg:
+
+  ; Compute total size: (ACC + 1) * 2 + 2
+  clc
+  lda BAS_ACC
+  adc #$01
+  sta BAS_AUX
+  lda BAS_ACC + 1
+  adc #$00
+  sta BAS_AUX + 1                ; AUX = element count
+  asl BAS_AUX
+  rol BAS_AUX + 1                ; AUX = element count * 2
+  clc
+  lda BAS_AUX
+  adc #$02                       ; + 2 for dim size header
+  sta BAS_AUX
+  lda BAS_AUX + 1
+  adc #$00
+  sta BAS_AUX + 1                ; AUX = total bytes needed
+
+  ; New array top = BAS_ARYTOP - total_bytes
+  sec
+  lda BAS_ARYTOP
+  sbc BAS_AUX
+  sta BAS_TMP2
+  lda BAS_ARYTOP + 1
+  sbc BAS_AUX + 1
+  sta BAS_TMP2 + 1               ; TMP2 = proposed new ARYTOP
+
+  ; Check for collision with program: new top must be > PRGEND
+  lda BAS_TMP2 + 1
+  cmp BAS_PRGEND + 1
+  bcc @DimOOM
+  bne @DimOK
+  lda BAS_TMP2
+  cmp BAS_PRGEND
+  bcc @DimOOM
+  beq @DimOOM
+@DimOK:
+  ; Commit: update ARYTOP
+  lda BAS_TMP2
+  sta BAS_ARYTOP
+  lda BAS_TMP2 + 1
+  sta BAS_ARYTOP + 1
+
+  ; Store base pointer in descriptor table
+  ldx BAS_TEMP
+  lda BAS_TMP2
+  sta BAS_ARYDESC,x
+  lda BAS_TMP2 + 1
+  sta BAS_ARYDESC + 1,x
+
+  ; Write max index at base pointer
+  ldy #$00
+  lda BAS_ACC
+  sta (BAS_TMP2),y
+  iny
+  lda BAS_ACC + 1
+  sta (BAS_TMP2),y
+
+  ; Zero-fill element data (starts at base + 2, length = element_count * 2)
+  clc
+  lda BAS_TMP2
+  adc #$02
+  sta BAS_TMP2
+  lda BAS_TMP2 + 1
+  adc #$00
+  sta BAS_TMP2 + 1
+
+  ; AUX still holds total_bytes; element data = AUX - 2
+  sec
+  lda BAS_AUX
+  sbc #$02
+  sta BAS_AUX
+  lda BAS_AUX + 1
+  sbc #$00
+  sta BAS_AUX + 1
+
+  lda #$00
+  ldy #$00
+@DimZeroLoop:
+  lda BAS_AUX
+  ora BAS_AUX + 1
+  beq @DimZeroDone
+  lda #$00
+  sta (BAS_TMP2),y
+  iny
+  bne @DimNoPage
+  inc BAS_TMP2 + 1
+@DimNoPage:
+  ; Decrement AUX
+  lda BAS_AUX
+  bne :+
+  dec BAS_AUX + 1
+: dec BAS_AUX
+  bra @DimZeroLoop
+@DimZeroDone:
+
+  ; Check for comma (multiple DIM declarations)
+  jsr BasSkipSpaces
+  jsr BasGetTokChar
+  cmp #CH_COMMA
+  bne @DimDone
+  jsr BasAdvTxtPtr               ; Skip ','
+  jmp @DimNext
+@DimDone:
+  rts
+
+@DimRedim:
+  lda #ERR_REDIM
+  jmp BasError
+@DimOOM:
+  lda #ERR_OUT_OF_MEM
+  jmp BasError
+@DimIllegal:
+  lda #ERR_ILLEGAL_QTY
+  jmp BasError
+@DimErr:
+  lda #ERR_SYNTAX
+  jmp BasError
+
+; ============================================================================
+; BasArrayRead — Read array element: X = var_offset (already ×2)
+; ============================================================================
+; Called from BasExprPrimary when A(expr) is found
+; TXTPTR points at '('
+
+BasArrayRead:
+  stx BAS_TEMP                   ; Save var offset
+  jsr BasAdvTxtPtr               ; Skip '('
+  jsr BasExpr                    ; index -> BAS_ACC
+  lda #CH_RPAREN
+  jsr BasExpectChar              ; Expect ')'
+
+  ; Resolve element address into BAS_TMP2
+  lda BAS_ACC
+  sta BAS_AUX
+  lda BAS_ACC + 1
+  sta BAS_AUX + 1                ; AUX = index
+  jsr BasArrayAddr               ; BAS_TMP2 = element address
+
+  ; Read element
+  ldy #$00
+  lda (BAS_TMP2),y
+  sta BAS_ACC
+  iny
+  lda (BAS_TMP2),y
+  sta BAS_ACC + 1
+  rts
+
+; ============================================================================
+; BasArrayWrite — Write array element: X = var_offset (already ×2)
+; ============================================================================
+; Called from BasCmdLet when A(expr) = expr is found
+; TXTPTR points at '('
+
+BasArrayWrite:
+  stx BAS_TEMP                   ; Save var offset
+  jsr BasAdvTxtPtr               ; Skip '('
+  jsr BasExpr                    ; index -> BAS_ACC
+  lda #CH_RPAREN
+  jsr BasExpectChar              ; Expect ')'
+
+  ; Save index on stack
+  lda BAS_ACC
+  pha
+  lda BAS_ACC + 1
+  pha
+
+  jsr BasSkipSpaces
+  lda #CH_EQUALS
+  jsr BasExpectChar              ; Expect '='
+
+  jsr BasExpr                    ; value -> BAS_ACC
+
+  ; Pop index into AUX
+  pla
+  sta BAS_AUX + 1
+  pla
+  sta BAS_AUX                    ; AUX = index
+
+  ; Resolve element address into BAS_TMP2
+  jsr BasArrayAddr               ; BAS_TMP2 = element address
+
+  ; Write element
+  ldy #$00
+  lda BAS_ACC
+  sta (BAS_TMP2),y
+  iny
+  lda BAS_ACC + 1
+  sta (BAS_TMP2),y
+  rts
+
+; ============================================================================
+; BasArrayAddr — Compute array element address
+; ============================================================================
+; Input: BAS_TEMP = var_offset (×2), BAS_AUX = index
+; Output: BAS_TMP2 = element address
+; Errors: ERR_SYNTAX if not dimensioned, ERR_BAD_SUBSCRIPT if out of range
+
+BasArrayAddr:
+  ; Look up array base pointer
+  ldx BAS_TEMP
+  lda BAS_ARYDESC,x
+  sta BAS_TMP2
+  lda BAS_ARYDESC + 1,x
+  sta BAS_TMP2 + 1
+
+  ; Check if dimensioned
+  ora BAS_TMP2
+  beq @AANotDim
+
+  ; Bounds check: AUX must be 0..max_index
+  lda BAS_AUX + 1
+  bmi @AABadSub                 ; Negative index
+  ldy #$00
+  lda (BAS_TMP2),y               ; max_index lo
+  sta BAS_SCRATCH
+  iny
+  lda (BAS_TMP2),y               ; max_index hi
+  cmp BAS_AUX + 1
+  bcc @AABadSub
+  bne @AAInBounds
+  lda BAS_SCRATCH
+  cmp BAS_AUX
+  bcc @AABadSub
+@AAInBounds:
+  ; Address = base + 2 + AUX * 2
+  asl BAS_AUX
+  rol BAS_AUX + 1               ; AUX = index * 2
+  clc
+  lda BAS_TMP2
+  adc #$02
+  sta BAS_TMP2
+  lda BAS_TMP2 + 1
+  adc #$00
+  sta BAS_TMP2 + 1               ; base + 2
+  clc
+  lda BAS_TMP2
+  adc BAS_AUX
+  sta BAS_TMP2
+  lda BAS_TMP2 + 1
+  adc BAS_AUX + 1
+  sta BAS_TMP2 + 1               ; final address
+  rts
+
+@AANotDim:
+  lda #ERR_SYNTAX
+  jmp BasError
+@AABadSub:
+  lda #ERR_BAD_SUBSCRIPT
+  jmp BasError
+
+; ============================================================================
 ; Keyword Table
 ; ============================================================================
 ; Format: null-terminated keyword string, then token byte.
@@ -4754,9 +5343,12 @@ BasFuncPow:
 ; Table terminated by a lone $00.
 
 BasKeywordTable:
+  .byte "SETTIME", $00, TOK_SETTIME
+  .byte "SETDATE", $00, TOK_SETDATE
   .byte "RESTORE", $00, TOK_RESTORE
   .byte "RETURN", $00, TOK_RETURN
   .byte "LOCATE", $00, TOK_LOCATE
+  .byte "NVRAM",  $00, TOK_NVRAM
   .byte "INKEY",  $00, TOK_INKEY
   .byte "PRINT",  $00, TOK_PRINT
   .byte "INPUT",  $00, TOK_INPUT
@@ -4764,6 +5356,7 @@ BasKeywordTable:
   .byte "SOUND",  $00, TOK_SOUND
   .byte "PAUSE",  $00, TOK_PAUSE
   .byte "COLOR",  $00, TOK_COLOR
+  .byte "FREE",   $00, TOK_FREE
   .byte "STOP",   $00, TOK_STOP
   .byte "CONT",   $00, TOK_CONT
   .byte "DATA",   $00, TOK_DATA
@@ -4793,6 +5386,8 @@ BasKeywordTable:
   .byte "NOT",    $00, TOK_NOT
   .byte "AND",    $00, TOK_AND
   .byte "MOD",    $00, TOK_MOD
+  .byte "DIM",    $00, TOK_DIM
+  .byte "MEM",    $00, TOK_MEM
   .byte "SYS",    $00, TOK_SYS
   .byte "DIR",    $00, TOK_DIR
   .byte "DEL",    $00, TOK_DEL
@@ -4842,4 +5437,8 @@ BasStrLoadErr:  .byte CH_CR, CH_LF, "?LOAD ERROR", CH_CR, CH_LF, $00
 BasStrSaveErr:  .byte CH_CR, CH_LF, "?SAVE ERROR", CH_CR, CH_LF, $00
 BasStrDelErr:   .byte CH_CR, CH_LF, "?DEL ERROR", CH_CR, CH_LF, $00
 BasStrNoDevice: .byte CH_CR, CH_LF, "?NO DEVICE", CH_CR, CH_LF, $00
+
+; MEM command strings
+BasStrMemHW:    .byte CH_CR, CH_LF, "HW: $", $00
+BasStrMemIO:    .byte CH_CR, CH_LF, "IO: ", $00
 
