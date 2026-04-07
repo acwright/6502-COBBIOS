@@ -6,51 +6,61 @@
 ; 85 slots of 3-byte JMP instructions plus 1 padding byte
 ; Provides stable entry points for external code and cartridges
 
+; --- Character I/O ---
 Chrout:         jmp ChroutDispatch      ; $A000 - Output char (dispatched by IO_MODE)
 Chrin:          jmp ChrinImpl           ; $A003 - Input char from buffer
 WriteBuffer:    jmp WriteBufferImpl     ; $A006 - Write byte to input buffer
 ReadBuffer:     jmp ReadBufferImpl      ; $A009 - Read byte from input buffer
 BufferSize:     jmp BufferSizeImpl      ; $A00C - Get buffer count
-InitVideo:      jmp InitVideoImpl       ; $A00F - Initialize TMS9918
-InitKB:         jmp InitKBImpl          ; $A012 - Initialize GPIO/VIA keyboard
-InitSC:         jmp InitSCImpl          ; $A015 - Initialize serial 6551
-InitSID:        jmp InitSIDImpl         ; $A018 - Initialize SID
-Beep:           jmp BeepImpl            ; $A01B - Play beep tone
-VideoClear:     jmp VideoClearImpl      ; $A01E - Clear video screen
-VideoPutChar:   jmp VideoPutCharImpl    ; $A021 - Write char at cursor
-VideoSetCursor: jmp VideoSetCursorImpl  ; $A024 - Set cursor (X=col, Y=row)
-VideoGetCursor: jmp VideoGetCursorImpl  ; $A027 - Get cursor position
-VideoScroll:    jmp VideoScrollImpl     ; $A02A - Scroll screen up one line
-SerialChrout:   jmp SerialChroutImpl    ; $A02D - Direct serial output (bypass IO_MODE)
-ReadJoystick1:  jmp ReadJoystick1Impl   ; $A030 - Read joystick 1
-ReadJoystick2:  jmp ReadJoystick2Impl   ; $A033 - Read joystick 2
-RtcReadTime:    jmp RtcReadTimeImpl     ; $A036 - Read RTC time
-RtcReadDate:    jmp RtcReadDateImpl     ; $A039 - Read RTC date
-RtcWriteTime:   jmp RtcWriteTimeImpl    ; $A03C - Set RTC time
-RtcWriteDate:   jmp RtcWriteDateImpl    ; $A03F - Set RTC date
-RtcReadNVRAM:   jmp RtcReadNVRAMImpl    ; $A042 - Read NVRAM byte
-RtcWriteNVRAM:  jmp RtcWriteNVRAMImpl   ; $A045 - Write NVRAM byte
-StReadSector:   jmp StReadSectorImpl    ; $A048 - Read CF sector
-StWriteSector:  jmp StWriteSectorImpl   ; $A04B - Write CF sector
-StWaitReady:    jmp StWaitReadyImpl     ; $A04E - Wait CF ready
-SetIOMode:      jmp SetIOModeImpl       ; $A051 - Set IO_MODE
-GetIOMode:      jmp GetIOModeImpl       ; $A054 - Get IO_MODE
-AsciiLoad:      jmp AsciiLoadImpl       ; $A057 - Load raw binary via serial
-AsciiSave:      jmp AsciiSaveImpl       ; $A05A - Save raw binary via serial
-SidPlayNote:    jmp SidPlayNoteImpl     ; $A05D - Play note (A=voice, X=freqLo, Y=freqHi)
-SidSilence:     jmp SidSilenceImpl      ; $A060 - Silence all voices
-FsDeleteFile:   jmp FsDeleteFileImpl    ; $A063 - Delete file from CF
+; --- IO Mode ---
+SetIOMode:      jmp SetIOModeImpl       ; $A00F - Set IO_MODE
+GetIOMode:      jmp GetIOModeImpl       ; $A012 - Get IO_MODE
+; --- Video (TMS9918) ---
+InitVideo:      jmp InitVideoImpl       ; $A015 - Initialize TMS9918
+VideoClear:     jmp VideoClearImpl      ; $A018 - Clear video screen
+VideoPutChar:   jmp VideoPutCharImpl    ; $A01B - Write char at cursor
+VideoSetCursor: jmp VideoSetCursorImpl  ; $A01E - Set cursor (X=col, Y=row)
+VideoGetCursor: jmp VideoGetCursorImpl  ; $A021 - Get cursor position
+VideoScroll:    jmp VideoScrollImpl     ; $A024 - Scroll screen up one line
+VideoSetColor:  jmp VideoSetColorImpl   ; $A027 - Set TMS9918 text color (A=reg7 byte: hi=fg, lo=bg)
+VideoChroutRaw: jmp VideoChroutRawImpl  ; $A02A - Output char to video (raw, no control-code handling)
+; --- Sound (SID) ---
+InitSID:        jmp InitSIDImpl         ; $A02D - Initialize SID
+Beep:           jmp BeepImpl            ; $A030 - Play beep tone
+SidPlayNote:    jmp SidPlayNoteImpl     ; $A033 - Play note (A=voice, X=freqLo, Y=freqHi)
+SidSilence:     jmp SidSilenceImpl      ; $A036 - Silence all voices
+SidSetVolume:   jmp SidSetVolumeImpl    ; $A039 - Set SID master volume (A=0-15)
+; --- Filesystem ---
+FsLoadFile:     jmp FsLoadFileImpl      ; $A03C - Load file from CF
+FsSaveFile:     jmp FsSaveFileImpl      ; $A03F - Save file to CF
+FsDeleteFile:   jmp FsDeleteFileImpl    ; $A042 - Delete file from CF
+; --- Keyboard / GPIO ---
+InitKB:         jmp InitKBImpl          ; $A045 - Initialize GPIO/VIA keyboard
+ReadJoystick1:  jmp ReadJoystick1Impl   ; $A048 - Read joystick 1
+ReadJoystick2:  jmp ReadJoystick2Impl   ; $A04B - Read joystick 2
+; --- Serial (6551) ---
+InitSC:         jmp InitSCImpl          ; $A04E - Initialize serial 6551
+SerialChrout:   jmp SerialChroutImpl    ; $A051 - Direct serial output (bypass IO_MODE)
+AsciiLoad:      jmp AsciiLoadImpl       ; $A054 - Load raw binary via serial
+AsciiSave:      jmp AsciiSaveImpl       ; $A057 - Save raw binary via serial
+; --- RTC (DS1511Y) ---
+RtcReadTime:    jmp RtcReadTimeImpl     ; $A05A - Read RTC time
+RtcReadDate:    jmp RtcReadDateImpl     ; $A05D - Read RTC date
+RtcWriteTime:   jmp RtcWriteTimeImpl    ; $A060 - Set RTC time
+RtcWriteDate:   jmp RtcWriteDateImpl    ; $A063 - Set RTC date
+RtcReadNVRAM:   jmp RtcReadNVRAMImpl    ; $A066 - Read NVRAM byte
+RtcWriteNVRAM:  jmp RtcWriteNVRAMImpl   ; $A069 - Write NVRAM byte
+; --- CompactFlash Storage ---
+StReadSector:   jmp StReadSectorImpl    ; $A06C - Read CF sector
+StWriteSector:  jmp StWriteSectorImpl   ; $A06F - Write CF sector
+StWaitReady:    jmp StWaitReadyImpl     ; $A072 - Wait CF ready
+; --- System ---
+SysDelay:       jmp SysDelayImpl        ; $A075 - Delay A=cnt_lo, X=cnt_hi centiseconds
+KernalInit:     jmp KernalInitImpl      ; $A078 - Initialize all hardware (caller must reset SP; no cli, no splash); rts when done
+KernalVersion:  jmp KernalVersionImpl   ; $A07B - Get BIOS version (A=major, X=minor)
 
-SysDelay:       jmp SysDelayImpl        ; $A066 - Delay A=cnt_lo, X=cnt_hi centiseconds
-SidSetVolume:   jmp SidSetVolumeImpl    ; $A069 - Set SID master volume (A=0-15)
-VideoSetColor:  jmp VideoSetColorImpl   ; $A06C - Set TMS9918 text color (A=reg7 byte: hi=fg, lo=bg)
-VideoChroutRaw: jmp VideoChroutRawImpl  ; $A06F - Output char to video (raw, no control-code handling)
-
-KernalInit:     jmp KernalInitImpl      ; $A072 - Initialize all hardware (caller must reset SP; no cli, no splash); rts when done
-KernalVersion:  jmp KernalVersionImpl   ; $A075 - Get BIOS version (A=major, X=minor)
-
-; Reserved entries ($A078-$A0FE)
-.repeat 45
+; Reserved entries ($A07E-$A0FE)
+.repeat 43
                 jmp UnimplementedStub
 .endrepeat
 .byte $00                             ; Pad to 256 bytes ($A0FF)
@@ -1844,12 +1854,12 @@ FsPrintSize:
 @FsPow10Lo: .byte <10000, <1000, <100, <10
 @FsPow10Hi: .byte >10000, >1000, >100, >10
 
-; FsLoadFile — Load file from CF into PROGRAM_START ($0800)
+; FsLoadFileImpl — Load file from CF into PROGRAM_START ($0800)
 ; Input: STR_PTR ($02-$03) points to null-terminated filename
 ; Output: Carry clear = success, FS_FILE_SIZE = bytes loaded
 ;         Carry set = file not found or read error
 ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
-FsLoadFile:
+FsLoadFileImpl:
   jsr FsParseName               ; Parse filename into FS_FNAME_BUF
   jsr FsReadDir                 ; Read directory sector
   bcs @FsLoadErr
@@ -1916,12 +1926,12 @@ FsLoadFile:
   sec
   rts
 
-; FsSaveFile — Save data from PROGRAM_START to CF
+; FsSaveFileImpl — Save data from PROGRAM_START to CF
 ; Input: STR_PTR ($02-$03) points to null-terminated filename
 ;        FS_FILE_SIZE ($034A-$034B) = number of bytes to save
 ; Output: Carry clear = success, Carry set = error (directory full or write error)
 ; Modifies: Flags, A, X, Y, CF_LBA, CF_BUF_PTR
-FsSaveFile:
+FsSaveFileImpl:
   jsr FsParseName               ; Parse filename into FS_FNAME_BUF
   jsr FsReadDir                 ; Read directory sector
   bcc @FsSaveReadOk

@@ -302,41 +302,43 @@ All public Kernal entry points are accessed through stable 3-byte `jmp` slots. C
 | `$A006` | `WriteBuffer` | Push byte into the input buffer |
 | `$A009` | `ReadBuffer` | Pop byte from the input buffer |
 | `$A00C` | `BufferSize` | Return number of bytes waiting in buffer |
-| `$A00F` | `InitVideo` | Initialise TMS9918 video chip |
-| `$A012` | `InitKB` | Initialise VIA keyboard / joystick ports |
-| `$A015` | `InitSC` | Initialise 6551 serial card (19200 8-N-1) |
-| `$A018` | `InitSID` | Initialise SID sound chip |
-| `$A01B` | `Beep` | Play a short beep tone |
-| `$A01E` | `VideoClear` | Clear the screen |
-| `$A021` | `VideoPutChar` | Write character at current cursor position |
-| `$A024` | `VideoSetCursor` | Set cursor: `X`=column (0–39), `Y`=row (0–23) |
-| `$A027` | `VideoGetCursor` | Get cursor: returns column in `X`, row in `Y` |
-| `$A02A` | `VideoScroll` | Scroll screen up one line |
-| `$A02D` | `SerialChrout` | Output character directly to serial (bypass `IO_MODE`) |
-| `$A030` | `ReadJoystick1` | Read joystick 1 → bitmask in `A` |
-| `$A033` | `ReadJoystick2` | Read joystick 2 → bitmask in `A` |
-| `$A036` | `RtcReadTime` | Read time → `A`=hours, `X`=minutes, `Y`=seconds |
-| `$A039` | `RtcWriteTime` | Write time ← `A`=hours, `X`=minutes, `Y`=seconds |
-| `$A03C` | `RtcReadDate` | Read date → `A`=date, `X`=month, `Y`=year |
-| `$A03F` | `RtcWriteDate` | Write date ← `A`=date, `X`=month, `Y`=year |
-| `$A042` | `RtcReadNVRAM` | Read NVRAM byte: `X`=address → `A`=data |
-| `$A045` | `RtcWriteNVRAM` | Write NVRAM byte: `X`=address, `A`=data |
-| `$A048` | `StReadSector` | Read one 512-byte CF sector |
-| `$A04B` | `StWriteSector` | Write one 512-byte CF sector |
-| `$A04E` | `StWaitReady` | Wait for CF ready; carry set on error |
-| `$A051` | `SetIOMode` | Set `IO_MODE`: `A`=0 (video) or 1 (serial) |
-| `$A054` | `GetIOMode` | Get `IO_MODE` → `A` |
-| `$A057` | `AsciiLoad` | Receive raw binary over serial into `$0800` |
-| `$A05A` | `AsciiSave` | Send current program as raw binary over serial |
-| `$A05D` | `SidPlayNote` | Play note: `A`=voice (0–2), `X`=freqLo, `Y`=freqHi |
-| `$A060` | `SidSilence` | Silence all SID voices |
-| `$A063` | `FsDeleteFile` | Delete a file from CompactFlash by name |
-| `$A066` | `SysDelay` | Delay `A`=count\_lo, `X`=count\_hi centiseconds (~10 ms each) using VIA T1 |
-| `$A069` | `SidSetVolume` | Set SID master volume: `A`=0–15 |
-| `$A06C` | `VideoSetColor` | Set TMS9918 text colour register: `A`=`(fg<<4)\|bg` |
-| `$A06F` | `VideoChroutRaw` | Output character glyph at cursor (raw, no control-code handling): `A`=char code |
-| `$A072` | `KernalInit` | Initialise all hardware (caller must reset stack pointer first; no cli, no splash). Returns via `RTS` |
-| `$A075` | `KernalVersion` | Get BIOS version → `A`=major, `X`=minor |
+| `$A00F` | `SetIOMode` | Set `IO_MODE`: `A`=0 (video) or 1 (serial) |
+| `$A012` | `GetIOMode` | Get `IO_MODE` → `A` |
+| `$A015` | `InitVideo` | Initialise TMS9918 video chip |
+| `$A018` | `VideoClear` | Clear the screen |
+| `$A01B` | `VideoPutChar` | Write character at current cursor position |
+| `$A01E` | `VideoSetCursor` | Set cursor: `X`=column (0–39), `Y`=row (0–23) |
+| `$A021` | `VideoGetCursor` | Get cursor: returns column in `X`, row in `Y` |
+| `$A024` | `VideoScroll` | Scroll screen up one line |
+| `$A027` | `VideoSetColor` | Set TMS9918 text colour register: `A`=`(fg<<4)\|bg` |
+| `$A02A` | `VideoChroutRaw` | Output character glyph at cursor (raw, no control-code handling): `A`=char code |
+| `$A02D` | `InitSID` | Initialise SID sound chip |
+| `$A030` | `Beep` | Play a short beep tone |
+| `$A033` | `SidPlayNote` | Play note: `A`=voice (0–2), `X`=freqLo, `Y`=freqHi |
+| `$A036` | `SidSilence` | Silence all SID voices |
+| `$A039` | `SidSetVolume` | Set SID master volume: `A`=0–15 |
+| `$A03C` | `FsLoadFile` | Load a file from CompactFlash by name |
+| `$A03F` | `FsSaveFile` | Save a file to CompactFlash by name |
+| `$A042` | `FsDeleteFile` | Delete a file from CompactFlash by name |
+| `$A045` | `InitKB` | Initialise VIA keyboard / joystick ports |
+| `$A048` | `ReadJoystick1` | Read joystick 1 → bitmask in `A` |
+| `$A04B` | `ReadJoystick2` | Read joystick 2 → bitmask in `A` |
+| `$A04E` | `InitSC` | Initialise 6551 serial card (19200 8-N-1) |
+| `$A051` | `SerialChrout` | Output character directly to serial (bypass `IO_MODE`) |
+| `$A054` | `AsciiLoad` | Receive raw binary over serial into `$0800` |
+| `$A057` | `AsciiSave` | Send current program as raw binary over serial |
+| `$A05A` | `RtcReadTime` | Read time → `A`=hours, `X`=minutes, `Y`=seconds |
+| `$A05D` | `RtcReadDate` | Read date → `A`=date, `X`=month, `Y`=year |
+| `$A060` | `RtcWriteTime` | Write time ← `A`=hours, `X`=minutes, `Y`=seconds |
+| `$A063` | `RtcWriteDate` | Write date ← `A`=date, `X`=month, `Y`=year |
+| `$A066` | `RtcReadNVRAM` | Read NVRAM byte: `X`=address → `A`=data |
+| `$A069` | `RtcWriteNVRAM` | Write NVRAM byte: `X`=address, `A`=data |
+| `$A06C` | `StReadSector` | Read one 512-byte CF sector |
+| `$A06F` | `StWriteSector` | Write one 512-byte CF sector |
+| `$A072` | `StWaitReady` | Wait for CF ready; carry set on error |
+| `$A075` | `SysDelay` | Delay `A`=count\_lo, `X`=count\_hi centiseconds (~10 ms each) using VIA T1 |
+| `$A078` | `KernalInit` | Initialise all hardware (caller must reset stack pointer first; no cli, no splash). Returns via `RTS` |
+| `$A07B` | `KernalVersion` | Get BIOS version → `A`=major, `X`=minor |
 
 ### Cartridge Support
 
@@ -344,7 +346,7 @@ Cartridges for this system overlay the ROM area from `$C000–$FFFF`. When inser
 
 Two Kernal facilities support cartridge development:
 
-**`KernalInit` ($A072)** — A callable subroutine that performs the complete hardware initialisation sequence (IRQ/BRK/NMI pointers, hardware probing, peripheral init, console auto-detection) and returns via `RTS`. It clears decimal mode and disables interrupts, but does **not** reset the stack pointer (the caller must do `ldx #$ff / txs` before the `JSR`), enable interrupts (`cli`), play the beep, display the splash screen, or enter the boot menu. This gives the cartridge full control over what happens after hardware init.
+**`KernalInit` ($A078)** — A callable subroutine that performs the complete hardware initialisation sequence (IRQ/BRK/NMI pointers, hardware probing, peripheral init, console auto-detection) and returns via `RTS`. It clears decimal mode and disables interrupts, but does **not** reset the stack pointer (the caller must do `ldx #$ff / txs` before the `JSR`), enable interrupts (`cli`), play the beep, display the splash screen, or enter the boot menu. This gives the cartridge full control over what happens after hardware init.
 
 **`BOOT_VECTOR` ($035B–$035C)** — A 2-byte RAM address that, if non-zero after `KernalInit`, causes the normal `Reset` flow to jump to the specified address instead of continuing to the splash screen and boot menu. `KernalInit` zeroes this variable, so a cartridge must write to it *after* calling `KernalInit` but *before* `Reset` checks it — or use Pattern B below.
 
@@ -357,7 +359,7 @@ Two Kernal facilities support cartridge development:
 CartReset:
     ldx #$ff
     txs                 ; Reset stack pointer
-    jsr $A072           ; KernalInit — all hardware ready, interrupts off
+    jsr $A078           ; KernalInit — all hardware ready, interrupts off
     ; Override IRQ_PTR ($0300) / NMI_PTR ($0304) if needed
     cli
     jmp CartMain         ; Cart's own program entry
@@ -372,8 +374,8 @@ This is the simplest approach. The cartridge gets fully initialised hardware and
 CartReset:
     ldx #$ff
     txs                 ; Reset stack pointer
-    jsr $A072           ; KernalInit — all hardware ready, interrupts off
-    jsr $A01B           ; Beep — audible "system alive" feedback
+    jsr $A078           ; KernalInit — all hardware ready, interrupts off
+    jsr $A030           ; Beep — audible "system alive" feedback
     ; Override IRQ_PTR ($0300) / NMI_PTR ($0304) if needed
     cli
     jmp CartMain         ; Cart's own program entry
@@ -389,9 +391,9 @@ In practice, **Pattern A is recommended** for most cartridges.
 
 - **Kernal jump table** (`$A000–$A0FF`) — all entries remain stable across BIOS versions
 - **`HW_PRESENT`** (`$030D`) — read after `KernalInit` to discover installed hardware
-- **`KernalVersion`** (`$A075`) — check BIOS compatibility (`A`=major, `X`=minor)
+- **`KernalVersion`** (`$A07B`) — check BIOS compatibility (`A`=major, `X`=minor)
 - **RAM vectors** — `IRQ_PTR` (`$0300`), `BRK_PTR` (`$0302`), `NMI_PTR` (`$0304`) can be overwritten to install custom interrupt handlers
-- **`IO_MODE`** (`$0306`) — set via `SetIOMode` (`$A051`) to route console output
+- **`IO_MODE`** (`$0306`) — set via `SetIOMode` (`$A00F`) to route console output
 - **No-console safe** — `KernalInit` does not halt if neither video nor serial is detected, allowing cartridges with their own display hardware to boot normally
 
 ---
