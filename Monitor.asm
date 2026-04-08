@@ -202,6 +202,9 @@ MonReadLine:
   beq @ReadBS
   cmp #$7F                      ; Delete? (treat as backspace)
   beq @ReadBS
+  ; Skip non-printable characters ($00-$1F)
+  cmp #$20
+  bcc @ReadWait
   ; Printable character — store if room
   cpy #MON_LINBUF_SIZE
   bcs @ReadWait                 ; Buffer full, ignore

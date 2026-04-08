@@ -293,6 +293,7 @@ VideoScrollImpl:
 
 ; VideoChrout — Output character to video display
 ; Handles control characters: CR ($0D), LF ($0A), BS ($08), BEL ($07)
+; Printable ASCII ($20-$7E) written to VRAM; all other codes silently discarded
 ; Auto-wraps at column 40, auto-scrolls at row 24
 ; Input: A = character to output
 ; Preserves: A, X, Y (callers like ChrinImpl, BasPrintStr and Wozmon depend on this)
@@ -301,6 +302,15 @@ VideoChroutImpl:
   pha
   phx
   phy
+  ; Fast path: printable ASCII ($20-$7E) — most common case
+  cmp #$20
+  bcc @Control                  ; < $20 → check control codes
+  cmp #$7F
+  bcc @PrintChar                ; $20-$7E → printable character
+  ; >= $7F (DEL and above) — discard
+  ; User programs wanting raw glyph output should use VideoChroutRaw.
+  bra @VideoChroutDone
+@Control:
   cmp #$0D                      ; Carriage Return?
   beq @VideoCR
   cmp #$0A                      ; Line Feed?
@@ -309,6 +319,9 @@ VideoChroutImpl:
   beq @VideoBS
   cmp #$07                      ; Bell?
   beq @VideoBEL
+  ; Unrecognized control code — discard
+  bra @VideoChroutDone
+@PrintChar:
   ; Regular printable character — write at cursor and advance
   jsr VideoPutChar              ; Write char to VRAM at cursor
   ; Advance cursor

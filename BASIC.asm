@@ -527,6 +527,10 @@ BasReadLine:
   cmp #CH_SPACE
   bcc @WaitChar
 
+  ; Skip DEL ($7F)
+  cmp #$7F
+  beq @WaitChar
+
   ; Ignore if buffer full
   cpy #BAS_LINBUF_SIZE
   bcs @WaitChar
