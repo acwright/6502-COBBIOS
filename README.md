@@ -396,6 +396,8 @@ In practice, **Pattern A is recommended** for most cartridges.
 - **`IO_MODE`** (`$0306`) — set via `SetIOMode` (`$A00F`) to route console output
 - **No-console safe** — `KernalInit` does not halt if neither video nor serial is detected, allowing cartridges with their own display hardware to boot normally
 
+A template project for creating cartridges for the A.C. Wright 6502 system is available here: [https://github.com/acwright/6502-CRT](https://github.com/acwright/6502-CRT).
+
 ---
 
 ## Prerequisites
