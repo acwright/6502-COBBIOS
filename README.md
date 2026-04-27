@@ -29,7 +29,7 @@ ENTER=BASIC  ESC=MONITOR
 
 9. **Boot menu with timeout** — waits ~5 seconds for a keypress, then auto-boots BASIC
 
-- **ENTER** (or timeout) — launches the Integer BASIC interpreter
+- **ENTER** (or timeout) — launches the BASIC interpreter
 - **ESC** — drops into the machine-code monitor
 
 #### Hardware Presence Flags
@@ -58,73 +58,76 @@ All hardware-dependent operations are guarded at every level — Kernal, BASIC, 
 - **Video absent** — `CLS`, `LOCATE`, `COLOR` silently skip (arguments are still consumed); console auto-switches to serial
 - **RTC absent** — `TIME`, `DATE`, `SETTIME`, `SETDATE`, and `NVRAM` (write) in BASIC print `NO DEVICE`; `NVRAM()` (read) returns 0
 
-### Integer BASIC
+### BASIC
 
-A full interactive BASIC interpreter is included. Programs are typed line-numbered and executed with `RUN`. All variables are single-letter (`A`–`Z`), signed 16-bit integers. Multiple statements per line are separated by `:`.
+A full interactive floating-point BASIC interpreter is included, with a feature surface comparable to Microsoft 6502 BASIC. Programs are typed line-numbered and executed with `RUN`. Numeric variables are single-letter (`A`–`Z`) holding 5-byte (40-bit) floating-point values; string variables are `A$`–`Z$`. Each name can additionally be dimensioned as a 1-D array via `DIM`. Multiple statements per line are separated by `:`.
+
+> **Numeric range:** ~±1.7 × 10³⁸, six significant digits. Numbers print with a leading-space sign convention (positive numbers prefixed by a space, negative by `-`). Boolean expressions evaluate to `-1` (true) or `0` (false).
 
 **Core Statements**
 
 | Command | Syntax | Effect |
 |---------|--------|--------|
-| `PRINT` | `PRINT [item [sep item ...]]` | Output items to console. Items can be string literals or expressions. `;` continues on the same line (trailing `;` suppresses the CRLF); `,` inserts two spaces. Bare `PRINT` prints only CRLF |
-| `INPUT` | `INPUT ["prompt"{;`&#124;`,}] var` | Read an integer from the user into `var`. With `;` appends `? ` to the prompt; with `,` prints the prompt only. Re-prompts with `?REDO` on non-numeric input |
-| `LET` | `LET var = expr` | Assign expression result to variable. `LET` is optional — `var = expr` is equivalent |
-| `GOTO` | `GOTO expr` | Jump unconditionally to the line numbered `expr`. `expr` can be any expression |
-| `GOSUB` | `GOSUB expr` | Push current position and jump to `expr`. Up to 64 levels deep |
+| `PRINT` | `PRINT [item [sep item ...]]` | Output items to console. Items may be string or numeric expressions. `;` = no separator (trailing `;` suppresses CRLF); `,` = advance to next 14-column print zone. Bare `PRINT` prints only CRLF |
+| `INPUT` | `INPUT ["prompt"{;`&#124;`,}] var [, var ...]` | Read value(s) from the user. Numeric or string vars supported. Re-prompts with `?REDO FROM START` on bad numeric input; `?EXTRA IGNORED` if too many comma-separated values |
+| `LET` | `[LET] var = expr` | Assign expression to variable. `LET` keyword is optional |
+| `GOTO` | `GOTO linenum` | Jump unconditionally to line `linenum` |
+| `GOSUB` | `GOSUB linenum` | Push current position and jump. Up to 64 levels deep |
 | `RETURN` | `RETURN` | Pop the GOSUB stack and resume after the calling `GOSUB` |
-| `IF` | `IF expr THEN stmt` | Execute `stmt` (or `GOTO linenum`) if `expr` is non-zero. No `ELSE` — false skips to the next line |
-| `FOR` | `FOR var = init TO limit [STEP step]` | Counted loop. Default step is `1`. Condition is `var ≤ limit` for positive step, `var ≥ limit` for negative. Up to 8 nested loops |
-| `NEXT` | `NEXT var` | Increment loop variable and branch back to matching `FOR` if condition holds |
+| `IF` | `IF expr THEN stmt [ELSE stmt]` | Execute THEN branch if `expr` non-zero, else (if present) the ELSE branch. `THEN linenum` is shorthand for `THEN GOTO linenum` |
+| `FOR` | `FOR var = init TO limit [STEP step]` | Counted loop. Default step is `1`. Up to 8 nested loops |
+| `NEXT` | `NEXT [var [, var ...]]` | Increment loop variable and branch back to matching `FOR` if condition holds |
 | `REM` | `REM [text]` | Comment — rest of line is ignored |
-| `END` | `END` | Stop execution and return to the `OK` prompt. Variables are preserved |
-| `STOP` | `STOP` | Stop execution and print `BREAK IN {linenum}`. Variables are preserved; resume with `CONT` |
-| `CONT` | `CONT` | Continue execution after a `STOP` or Ctrl+C break (immediate mode only). Error if nothing to continue |
-| `ON` | `ON expr GOTO l1,l2,...` | Evaluate `expr`, jump to the nth line number in the list. `ON expr GOSUB ...` also supported. Out-of-range index silently continues |
-| `DATA` | `DATA v1,v2,...` | Store inline numeric data for `READ`. Skipped during normal execution |
-| `READ` | `READ var [,var ...]` | Read the next value(s) from `DATA` statements into variables. `OUT OF DATA` error if exhausted |
-| `RESTORE` | `RESTORE` | Reset the `DATA` pointer so the next `READ` starts from the first `DATA` statement |
-| `LIST` | `LIST` | Print the entire program in detokenized form. Ctrl+C interrupts |
-| `RUN` | `RUN` | Clear all variables and run the program from the first line |
-| `NEW` | `NEW` | Erase the program and clear variables. No `OK` is printed afterward |
-| `CLR` | `CLR` | Clear all variables (A–Z) to zero, reset GOSUB/FOR stacks, and release all arrays. Program is kept |
-| `DIM` | `DIM var(size) [, var(size) ...]` | Dimension one or more arrays with indices `0` to `size`. Arrays are stored at the top of RAM, growing downward. `REDIM'D ARRAY` error if already dimensioned; released by `CLR`, `RUN`, or `NEW` |
-| `POKE` | `POKE addr, value` | Write the low byte of `value` to memory address `addr` |
-| `BRK` | `BRK` | Drop into the machine-code monitor. Return to BASIC with `X` in the monitor |
+| `END` | `END` | Stop execution and return to `OK`. Variables preserved |
+| `STOP` | `STOP` | Stop and print `BREAK IN nnnn`. Resume with `CONT` |
+| `CONT` | `CONT` | Continue after `STOP` or Ctrl+C break (immediate mode only). Error if nothing to continue |
+| `ON` | `ON expr GOTO l1,l2,...` / `ON expr GOSUB l1,l2,...` | Evaluate `expr`, branch to nth target. Out-of-range index silently continues |
+| `DATA` | `DATA v1,v2,...` | Inline data for `READ` (numeric or string literals). Skipped during normal execution |
+| `READ` | `READ var [,var ...]` | Read next value(s) from `DATA` into variables. `OUT OF DATA` if exhausted |
+| `RESTORE` | `RESTORE` | Reset `DATA` pointer to start of program |
+| `LIST` | `LIST` | Print the program in detokenized form. Ctrl+C interrupts |
+| `RUN` | `RUN [linenum]` | Clear variables and run the program (optionally from `linenum`) |
+| `NEW` | `NEW` | Erase the program and clear variables |
+| `CLR` | `CLR` | Clear variables and arrays; reset GOSUB/FOR stacks. Program is kept |
+| `DIM` | `DIM var(size) [, var(size) ...]` | Dimension a 1-D array (numeric or string), valid indices `0..size`. `REDIM'D ARRAY` if already dimensioned. Only one dimension is supported |
+| `DEF FN` | `DEF FN A(X) = expr` | Define a single-argument numeric user function. Call with `FN A(value)` |
+| `POKE` | `POKE addr, value` | Write byte `value` to memory address `addr` |
+| `BRK` | `BRK` | Drop into the machine-code monitor. Return to BASIC with `X` |
 
 **Storage & System**
 
 | Command | Effect |
 |---------|--------|
-| `SYS <addr>` | Call a machine-code routine at the given address; `RTS` returns to BASIC |
-| `LOAD "name"` | Load a named file from CompactFlash into program space (`$0800`) |
-| `SAVE "name"` | Save the current BASIC program to CompactFlash |
-| `LOAD` (no arg) | Receive a program via XModem over the serial port |
-| `SAVE` (no arg) | Transmit the current program via XModem over the serial port |
-| `DIR` | List all files stored on CompactFlash |
-| `DEL "name"` | Delete a named file from CompactFlash and reclaim its directory entry |
-| `BANK <n>` | Select 1KB RAM bank `n` at `$8000–$83FE` via the bank latch |
-| `MEM` | Print system info: free bytes, hardware-present flags (as hex), and active I/O mode |
+| `SYS <addr>` | Call a machine-code routine; `RTS` returns to BASIC |
+| `LOAD "name"` | Load a named file from CompactFlash to `$0800` |
+| `SAVE "name"` | Save the current program to CompactFlash |
+| `LOAD` (no arg) | Receive a program via XModem on the serial port |
+| `SAVE` (no arg) | Transmit the current program via XModem |
+| `DIR` | List CompactFlash directory |
+| `DEL "name"` | Delete a named file from CompactFlash |
+| `BANK <n>` | Select 1KB RAM bank `n` at `$8000–$83FE` |
+| `MEM` | Print free bytes and `HW_PRESENT` (hex) |
 
 **Video & Display**
 
 | Command | Effect |
 |---------|--------|
 | `CLS` | Clear the screen and reset cursor to (0, 0) |
-| `LOCATE <row>, <col>` | Move cursor to the given row (0–23) and column (0–39) |
-| `COLOR <fg>, <bg>` | Set TMS9918 text foreground and background colours (0–15 each) |
+| `LOCATE <row>, <col>` | Move cursor to row 0–23, column 0–39 |
+| `COLOR <fg>, <bg>` | Set TMS9918 text foreground/background colours (0–15 each) |
 
 **Sound**
 
 | Command | Effect |
 |---------|--------|
-| `SOUND <voice>, <freq>, <dur>` | Play a tone on voice 1–3 at the given SID frequency value for `dur` centiseconds, then silence |
+| `SOUND <voice>, <freq>, <dur>` | Play a tone on voice 0–2 at `freq` Hz for `dur` centiseconds, then silence |
 | `VOL <n>` | Set SID master volume (0–15) |
 
 **Timing & I/O**
 
 | Command | Effect |
 |---------|--------|
-| `PAUSE <n>` | Pause execution for `n` centiseconds (~10 ms each) |
+| `PAUSE <n>` | Pause for `n` centiseconds (~10 ms each) |
 | `WAIT <addr>, <mask>` | Spin until `(addr) AND mask` is non-zero; Ctrl+C aborts |
 
 **Time & Date**
@@ -133,53 +136,62 @@ A full interactive BASIC interpreter is included. Programs are typed line-number
 |---------|--------|
 | `TIME` | Print current RTC time as `HH:MM:SS` |
 | `DATE` | Print current RTC date as `CCYY-MM-DD` |
-| `SETTIME <hh>, <mm>, <ss>` | Set the RTC time (hours, minutes, seconds in binary) |
-| `SETDATE <cc>, <yy>, <mm>, <dd>` | Set the RTC date (century, year, month, day in binary) |
-| `NVRAM <addr>, <value>` | Write a byte to RTC battery-backed NVRAM at address `0`–`255` |
+| `SETTIME <hh>, <mm>, <ss>` | Set the RTC time |
+| `SETDATE <cc>, <yy>, <mm>, <dd>` | Set the RTC date |
+| `NVRAM <addr>, <value>` | Write a byte to RTC NVRAM at address 0–255 |
 
 **Functions & Expressions**
 
-| Function / Literal | Returns |
-|--------------------|---------|
+| Function | Returns |
+|----------|---------|
 | `ABS(x)` | Absolute value of `x` |
-| `RND(x)` | Pseudo-random integer in `[0, x)` for `x > 0`; raw PRNG value (0–32767) for `x ≤ 0` |
 | `SGN(x)` | Sign of `x`: `1`, `0`, or `-1` |
-| `PEEK(addr)` | Byte value at memory address `addr` (0–255) |
-| `NOT expr` | Logical NOT: `1` if `expr` is zero, `0` otherwise |
-| `expr AND expr` | Logical AND: `1` if both operands are non-zero, `0` otherwise |
-| `expr OR expr` | Logical OR: `1` if either operand is non-zero, `0` otherwise |
-| `expr MOD expr` | Integer remainder after division; sign follows the dividend. `DIVISION BY ZERO` if right side is zero |
-| `CHR(n)` | In `PRINT`, draws the CP437 glyph for code `n` directly (bypasses control-code handling). In expressions, returns `n` unchanged |
-| `SQR(n)` | Integer square root of `n`. Error if `n` is negative |
-| `MIN(a,b)` | Returns the smaller of `a` and `b` |
-| `MAX(a,b)` | Returns the larger of `a` and `b` |
-| `POW(b,e)` | Integer exponentiation: `b` raised to the power `e`. Negative exponent returns `0` |
-| `INKEY` | Non-blocking key read: returns the ASCII code of a pressed key, or `0` if no key is waiting. No parentheses |
-| `ASC(n)` | Identity function — returns `n` unchanged. Convenience for readability (e.g. `A = ASC(INKEY)`) |
-| `TAB(n)` | In `PRINT`, advances cursor to column `n` by emitting spaces. Does nothing if already at or past column `n`. In expressions, returns `n` unchanged |
-| `HEX(n)` | In `PRINT`, outputs `n` as a 4-digit hexadecimal value with `$` prefix (e.g. `$00FF`). In expressions, returns `n` unchanged |
-| `JOY(1)` / `JOY(2)` | Joystick bitmask for port 1 or 2 (bit order: R-L-D-U-Y-X-B-A) |
-| `FREE` | Returns free bytes between program end and array space. No parentheses |
-| `NVRAM(addr)` | Read a byte from RTC battery-backed NVRAM at address `0`–`255`. Returns `0` if RTC is absent |
-| `var(index)` | Array element access. Array must be previously dimensioned with `DIM`. `BAD SUBSCRIPT` error if index is out of range |
-| `$xxxx` | Hexadecimal integer literal (e.g. `$FF` = 255, `$1000` = 4096) |
+| `INT(x)` | Largest integer ≤ `x` (floor) |
+| `SQR(x)` | Square root of `x` (error if negative) |
+| `EXP(x)` | e raised to `x` |
+| `LOG(x)` | Natural logarithm (error if `x ≤ 0`) |
+| `SIN(x)` / `COS(x)` / `TAN(x)` | Trig functions, radians |
+| `ATN(x)` | Arctangent, radians |
+| `RND(x)` | Pseudo-random float in `[0, 1)` for `x > 0`; repeats last value for `x = 0`; reseeds for `x < 0` |
+| `PEEK(addr)` | Byte value at memory address `addr` |
+| `FRE(x)` | Free bytes between top of variable space and bottom of string heap (argument ignored) |
+| `POS(x)` | Current print column (argument ignored) |
+| `LEN(s$)` | String length |
+| `VAL(s$)` | Parse `s$` as a number; returns 0 if not numeric |
+| `ASC(s$)` | ASCII code of first character of `s$` |
+| `CHR$(n)` | One-character string with ASCII code `n` |
+| `STR$(n)` | Numeric value `n` formatted as a string |
+| `LEFT$(s$,n)` / `RIGHT$(s$,n)` | First / last `n` chars of `s$` |
+| `MID$(s$,start[,len])` | Substring of `s$` starting at 1-based index `start` |
+| `TAB(n)` | In `PRINT`, advance cursor to column `n` (no-op if already past) |
+| `SPC(n)` | In `PRINT`, emit `n` spaces |
+| `INKEY` | Non-blocking key read: ASCII code or `0`. No parentheses |
+| `JOY(1)` / `JOY(2)` | Joystick port 1 or 2 bitmask (R-L-D-U-Y-X-B-A) |
+| `NVRAM(addr)` | Read byte from RTC NVRAM (returns 0 if RTC absent) |
+| `HEX(n)` | In `PRINT`, output `n` as `$xxxx` hex; in expressions, returns `n` unchanged |
+| `MIN(a,b)` / `MAX(a,b)` | Smaller / larger of `a` and `b` |
+| `var(index)` | Array element access. Array must be `DIM`-med first |
+
+**Operators**
+
+`+ - * /` — standard arithmetic. `^` — exponentiation. `+` between strings — concatenation. Comparisons `= <> < > <= >=` work on numbers and strings. Logical `AND`, `OR`, `NOT` operate bitwise on the integer parts of operands; relational comparisons return `-1` (true) or `0` (false).
 
 **Operator Precedence** (high to low)
 
 | Level | Operators |
 |-------|-----------|
-| Unary | `-` (negate), `NOT` |
-| Multiplicative | `*`, `/`, `MOD` |
+| Power | `^` |
+| Unary | `-` (negate), `+` |
+| Multiplicative | `*`, `/` |
 | Additive | `+`, `-` |
 | Relational | `=`, `<>`, `<`, `>`, `<=`, `>=` |
+| Logical NOT | `NOT` |
 | Logical AND | `AND` |
 | Logical OR | `OR` |
 
-> **Note on integer range:** BASIC uses signed 16-bit integers (`-32768` to `32767`). Hex literals above `$7FFF` print as negative numbers (e.g. `$A000` = `-24576`).
-
 > **Stack limits:** GOSUB supports up to 64 nested levels; FOR/NEXT supports up to 8 nested loops. Exceeding either limit produces an `OUT OF MEMORY` error.
 
-> **Arrays:** Each variable A–Z can optionally be dimensioned as a 1D array with `DIM`. Arrays are allocated from the top of RAM downward; `FREE` reports the gap between the program and array space. Elements are 0-indexed signed 16-bit integers, initialised to zero.
+> **Memory layout:** Programs grow up from `$0800`. Numeric/string scalar variables follow the program, then arrays, then the string heap which grows down from `$8000`. `MEM` and the cold-boot banner report `MEMSIZ - VARTAB` (free bytes for variables, arrays, and strings combined).
 
 ### Machine Code Monitor
 
@@ -275,7 +287,7 @@ A SID chip provides audio output. The `Beep` Kernal routine plays a ~475 Hz tone
 | `$A000–$A0FF` | 256B | **Kernal jump table** (public API) |
 | `$A100–$B7FF` | ~6KB | Kernal routines |
 | `$B800–$BFFF` | 2KB | IBM CP437 character set (VRAM init data) |
-| `$C000–$EDFF` | ~11.5KB | Integer BASIC interpreter |
+| `$C000–$EDFF` | ~11.5KB | BASIC interpreter (5-byte floating-point) |
 | `$EE00–$FEFF` | ~4KB | Machine-code monitor |
 | `$FF00–$FFF9` | 250B | Wozmon (Apple I machine-code monitor) |
 | `$FFFA–$FFFF` | 6B | CPU vectors (NMI / RESET / IRQ) |
@@ -288,8 +300,9 @@ A SID chip provides audio output. The `Beep` Kernal routine plays a ~475 Hz tone
 | `$0100–$01FF` | 256B | CPU stack |
 | `$0200–$02FF` | 256B | Keyboard input ring buffer |
 | `$0300–$03FF` | 256B | Kernal variables (vectors, cursor, HW\_PRESENT, BOOT\_VECTOR, RTC, FS state, array descriptors) |
-| `$0400–$07FF` | 1KB | User / BASIC variables |
-| `$0800–$7FFF` | ~31KB | Program space (programs grow up from `$0800`; arrays grow down from `$7FFF`) |
+| `$0400–$05FF` | 512B | BASIC line-input buffer, GOSUB stack, FOR stack |
+| `$0600–$07FF` | 512B | CompactFlash sector buffer (overlaps user RAM during `LOAD`/`SAVE`/`DIR`/`DEL`) |
+| `$0800–$7FFF` | ~31KB | Program text grows up from `$0800`; numeric/string variables follow; arrays then string heap grow down from `$8000` |
 
 ---
 

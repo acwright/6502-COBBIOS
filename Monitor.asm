@@ -312,7 +312,7 @@ MonCmdTable:
 
 MonCmdX:
   jsr VideoClear                ; Clear screen before entering BASIC
-  jmp BasColdStart
+  jmp BasEntry
 
 ; ============================================================================
 ; MonCmdR — Display CPU registers

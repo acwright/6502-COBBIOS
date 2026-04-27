@@ -75,6 +75,22 @@ FS_DIR_IDX          := $034D             ; Directory entry index (0-15)
 FS_NEXT_SEC         := $034E             ; $034E-$034F - Next free sector for allocation (2 bytes)
 FS_FNAME_BUF        := $0350             ; $0350-$035A - 11-byte filename buffer (8 name + 3 ext)
 BOOT_VECTOR         := $035B             ; $035B-$035C - Cart/boot redirect vector (2 bytes, 0=normal boot)
+
+; BASIC runtime variables ($035D-$03FF) - additive; assignable by BASIC
+BAS_TXTTAB          := $035D             ; $035D-$035E - Start of program text (= $0800)
+BAS_VARTAB          := $035F             ; $035F-$0360 - End-of-program / start-of-vars pointer
+BAS_ARYTAB          := $0361             ; $0361-$0362 - Start of arrays
+BAS_STREND          := $0363             ; $0363-$0364 - End of arrays
+BAS_FRETOP          := $0365             ; $0365-$0366 - Top-of-string-heap pointer
+BAS_MEMSIZ          := $0367             ; $0367-$0368 - End of usable memory (= $8000)
+BAS_CURLIN          := $0369             ; $0369-$036A - Currently executing line ($FFFF=direct mode)
+BAS_OLDLIN          := $036B             ; $036B-$036C - Saved line for CONT
+BAS_OLDTEXT         := $036D             ; $036D-$036E - Saved text ptr for CONT
+BAS_WARM            := $036F             ; Warm-start magic ($A5 = previously initialised)
+BAS_POSX            := $0370             ; PRINT column counter (0-39 video / 0-79 serial)
+BAS_INPSAV          := $0371             ; $0371-$0372 - Saved TXTPTR across INPUT REDO retry
+BAS_FNAME           := $0373             ; $0373-$037E - 12-byte scratch for null-terminated filename (Phase 7)
+
 FS_SECTOR_BUF       := $0600             ; $0600-$07FF - 512-byte sector buffer (overlaps BAS_TOKBUF/BAS_STRBUF)
 
 ; XModem Protocol Constants
