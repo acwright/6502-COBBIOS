@@ -387,6 +387,33 @@ BasReadyLoop:
 ; Initialise BASIC runtime variables.  Called once on first entry.
 ; =============================================================================
 BasColdInit:
+        ; ---------------------------------------------------------------------
+        ; Zero the BASIC-owned zero-page workspace first.  On a cold boot RAM
+        ; holds random power-up values, and the inlined MSBASIC math/parse code
+        ; treats several scratch cells as invariant-zero (e.g. SHIFTSIGNEXT,
+        ; FACEXTENSION, ARGEXTENSION) — they are only written on certain code
+        ; paths and assumed already 0 otherwise.  A random value in any of them
+        ; corrupts results; this is what produced the bogus "84405.0911 BYTES
+        ; FREE" banner on real hardware.  Clearing the whole region up front
+        ; eliminates this entire class of uninitialised-read bugs.  The two
+        ; ranges are the BASIC primary workspace ($04-$23) and the FP / var /
+        ; array / string spill ($3A-$85); $24-$39 is Kernal-reserved and left
+        ; untouched.  Specific non-zero values (CURLIN, TEMPPT, RND seed, etc.)
+        ; are written further down, after this clear.
+        lda     #0
+        ldx     #BAS_TXTPTR             ; $04..$23
+@ClrZpLo:
+        sta     ZP,x
+        inx
+        cpx     #BAS_DEST+2
+        bne     @ClrZpLo
+        ldx     #BAS_TMP1               ; $3A..$85
+@ClrZpHi:
+        sta     ZP,x
+        inx
+        cpx     #BAS_FRESPC+2
+        bne     @ClrZpHi
+
         ; TXTTAB / MEMSIZ are constants for our memory map.
         lda     #<BAS_PRG_START
         sta     BAS_TXTTAB
@@ -414,16 +441,27 @@ BasColdInit:
         sta     BAS_TMP1+1
 @WalkLoop:
         ldy     #1
-        lda     (BAS_TMP1),y
-        beq     @WalkDone               ; end-marker reached
+        lda     (BAS_TMP1),y            ; next-ptr high byte
+        beq     @WalkDone               ; 0 → end-marker reached
+        cmp     #>$8000                 ; next-ptr must point below MEMSIZ
+        bcs     @InstallEmpty           ; out of range → not a real program
+        sta     BAS_TMP2+1              ; stash candidate next-ptr
         ldy     #0
-        lda     (BAS_TMP1),y
-        pha
-        ldy     #1
-        lda     (BAS_TMP1),y
-        sta     BAS_TMP1+1
-        pla
+        lda     (BAS_TMP1),y            ; next-ptr low byte
+        sta     BAS_TMP2
+        ; Program lines are stored in strictly ascending address order.  If the
+        ; candidate next-ptr does not advance upward, we are walking random
+        ; power-up RAM (which on a cold boot can otherwise loop forever) — bail
+        ; out and install an empty program instead.
+        lda     BAS_TMP1
+        cmp     BAS_TMP2
+        lda     BAS_TMP1+1
+        sbc     BAS_TMP2+1
+        bcs     @InstallEmpty           ; current >= candidate → invalid chain
+        lda     BAS_TMP2                ; advance to the next line
         sta     BAS_TMP1
+        lda     BAS_TMP2+1
+        sta     BAS_TMP1+1
         bra     @WalkLoop
 @WalkDone:
         ; BAS_TMP1 points at the end-marker; VARTAB = TMP1 + 2.
@@ -476,16 +514,12 @@ BasColdInit:
         stz     BAS_STOPTXT
         stz     BAS_STOPTXT+1
         stz     BAS_PENDKEY
+        stz     BAS_POSX                ; PRINT column counter (non-ZP)
 
-        stz     BAS_QUOTEFLG
+        ; ZP runtime flags (QUOTEFLG, DIMFLG, VALTYP, DATAFLG, SUBFLG,
+        ; INPUTFLG, SHIFTSIGNEXT, ...) are already zeroed by the cold-init
+        ; clear loop above; only non-zero / non-ZP state is set here.
 
-        ; Variable/array/string runtime state.
-        stz     BAS_DIMFLG
-        stz     BAS_VALTYP
-        stz     BAS_VALTYP+1
-        stz     BAS_DATAFLG
-        stz     BAS_SUBFLG
-        stz     BAS_INPUTFLG
         ; Temp-string descriptor stack: TEMPPT = TEMPST.
         lda     #BAS_TEMPST
         sta     BAS_TEMPPT
