@@ -1174,42 +1174,86 @@ RtcWriteNVRAMImpl:
 ; Sets HW_RAM_L / HW_RAM_H in HW_PRESENT on success
 ; Modifies: Flags, A
 ProbeRAM:
+  ; A naive "write byte, immediately read it back" test is unreliable: with no
+  ; SRAM responding, bus/parasitic capacitance holds the just-written value for
+  ; a cycle or two, so the read-back matches and the probe falsely passes.
+  ; Instead we write complementary patterns into TWO different banks, then read
+  ; them back AFTER intervening bus cycles (opcode fetches from ROM + a second
+  ; bank's data) have flushed the bus. This forces the chip to actually store
+  ; distinct values and also exercises the bank-select latch. Open bus cannot
+  ; fake both reads. Bank-0/bank-1 byte 0 are saved and restored.
+
   ; --- Probe RAM Low (IO 1) ---
-  stz RAM_BANK_L                ; Select bank 0
-  lda RAM_DATA_L                ; Save existing value
+  stz RAM_BANK_L                ; Bank 0
+  lda RAM_DATA_L                ; Save bank-0 byte 0
   pha
+  lda #$01
+  sta RAM_BANK_L                ; Bank 1
+  lda RAM_DATA_L                ; Save bank-1 byte 0
+  pha
+  stz RAM_BANK_L               ; Bank 0
   lda #$A5
-  sta RAM_DATA_L
-  cmp RAM_DATA_L
-  bne @RAMLDone                 ; First pattern failed
+  sta RAM_DATA_L                ; bank0[0] = $A5
+  lda #$01
+  sta RAM_BANK_L                ; Bank 1
   lda #$5A
-  sta RAM_DATA_L
-  cmp RAM_DATA_L
-  bne @RAMLDone                 ; Second pattern failed
+  sta RAM_DATA_L                ; bank1[0] = $5A (flips data + address lines)
+  stz RAM_BANK_L               ; Back to bank 0
+  lda RAM_DATA_L               ; Read bank0[0] (bus no longer holds $A5)
+  cmp #$A5
+  bne @RAMLRestore             ; Bank 0 did not retain its value
+  lda #$01
+  sta RAM_BANK_L                ; Bank 1
+  lda RAM_DATA_L               ; Read bank1[0]
+  cmp #$5A
+  bne @RAMLRestore             ; Bank 1 did not retain (or latch failed)
   lda HW_PRESENT
   ora #HW_RAM_L
   sta HW_PRESENT
-@RAMLDone:
+@RAMLRestore:
+  lda #$01
+  sta RAM_BANK_L                ; Bank 1
   pla
-  sta RAM_DATA_L                ; Restore original value
+  sta RAM_DATA_L                ; Restore bank-1 byte 0
+  stz RAM_BANK_L               ; Bank 0
+  pla
+  sta RAM_DATA_L                ; Restore bank-0 byte 0
+
   ; --- Probe RAM High (IO 2) ---
-  stz RAM_BANK_H                ; Select bank 0
-  lda RAM_DATA_H                ; Save existing value
+  stz RAM_BANK_H                ; Bank 0
+  lda RAM_DATA_H                ; Save bank-0 byte 0
   pha
+  lda #$01
+  sta RAM_BANK_H                ; Bank 1
+  lda RAM_DATA_H                ; Save bank-1 byte 0
+  pha
+  stz RAM_BANK_H               ; Bank 0
   lda #$A5
-  sta RAM_DATA_H
-  cmp RAM_DATA_H
-  bne @RAMHDone                 ; First pattern failed
+  sta RAM_DATA_H                ; bank0[0] = $A5
+  lda #$01
+  sta RAM_BANK_H                ; Bank 1
   lda #$5A
-  sta RAM_DATA_H
-  cmp RAM_DATA_H
-  bne @RAMHDone                 ; Second pattern failed
+  sta RAM_DATA_H                ; bank1[0] = $5A (flips data + address lines)
+  stz RAM_BANK_H               ; Back to bank 0
+  lda RAM_DATA_H               ; Read bank0[0] (bus no longer holds $A5)
+  cmp #$A5
+  bne @RAMHRestore             ; Bank 0 did not retain its value
+  lda #$01
+  sta RAM_BANK_H                ; Bank 1
+  lda RAM_DATA_H               ; Read bank1[0]
+  cmp #$5A
+  bne @RAMHRestore             ; Bank 1 did not retain (or latch failed)
   lda HW_PRESENT
   ora #HW_RAM_H
   sta HW_PRESENT
-@RAMHDone:
+@RAMHRestore:
+  lda #$01
+  sta RAM_BANK_H                ; Bank 1
   pla
-  sta RAM_DATA_H                ; Restore original value
+  sta RAM_DATA_H                ; Restore bank-1 byte 0
+  stz RAM_BANK_H               ; Bank 0
+  pla
+  sta RAM_DATA_H                ; Restore bank-0 byte 0
   rts
 
 ; ProbeVideo — TMS9918 VRAM read-back test
